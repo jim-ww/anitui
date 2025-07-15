@@ -33,15 +33,15 @@ func (s Status) IsValidStatus() bool {
 }
 
 type Anime struct {
+	Status         Status    `csv:"status"` // current status of anime
 	Title          string    `csv:"title"`
-	Status         Status    `csv:"status"`          // current status of anime
-	LocalScore     float32   `csv:"score"`           // user-defined local-only score. ex. 0.0 - 10.0
-	StartDate      time.Time `csv:"start_date"`      // first time user started watching specific anime. ex. 2006.01.02
-	FinishDate     time.Time `csv:"finish_date"`     // date and time when user had finished watching anime
-	LastWatchDate  time.Time `csv:"last_watch_date"` // last time user watched this anime
-	Progress       int       `csv:"progress"`        // represents how many episodes user has already finished
-	TotalRewatches int       `csv:"total_rewatch"`   // number of times user has rewatched this anime
-	Notes          string    `csv:"notes"`           // optional user notes
+	Progress       int       `csv:"progress"`                  // represents how many episodes user has already finished
+	LocalScore     float32   `csv:"score"`                     // user-defined local-only score. ex. 0.0 - 10.0
+	StartDate      time.Time `csv:"start_date,omitempty" `     // first time user started watching specific anime. ex. 2006.01.02
+	FinishDate     time.Time `csv:"finish_date,omitempty"`     // date and time when user had finished watching anime
+	LastWatchDate  time.Time `csv:"last_watch_date,omitempty"` // last time user watched this anime
+	TotalRewatches int       `csv:"total_rewatch"`             // number of times user has rewatched this anime
+	Notes          string    `csv:"notes"`                     // optional user notes
 }
 
 func NewAnime(status Status, localScore float32, startDate, finishDate, lastWatchDate time.Time, progress, totalRewatches int, title, notes string) Anime {
