@@ -26,4 +26,4 @@ go.work.sum
 # env file
 .env
 
-test-data.csv
+storage/
