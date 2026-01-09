@@ -12,9 +12,9 @@ var (
 )
 
 type Store interface {
-	GetAllEntries(ctx context.Context) ([]models.Anime, error)
-	FindByTitleOne(ctx context.Context, title string) (models.Anime, error)
-	FindAllMatchingByTitle(ctx context.Context, title string) ([]models.Anime, error)
-	UpdateEntryByTitle(ctx context.Context, title string, updated models.Anime) (upd models.Anime, err error)
-	DeleteEntryByTitle(ctx context.Context, title string) error
+	GetEntries(ctx context.Context) (map[int]models.Anime, error)
+	FindTitleByID(ctx context.Context, id int) (models.Anime, error)
+	FindAllMatchingByTitle(ctx context.Context, title string) (map[int]models.Anime, error)
+	UpdateEntryByID(ctx context.Context, id int, updated models.Anime) (upd models.Anime, err error)
+	DeleteEntryByID(ctx context.Context, id int) error
 }

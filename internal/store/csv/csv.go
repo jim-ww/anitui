@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ type Config struct {
 }
 
 type CSVStore struct {
-	entries []models.Anime
+	entries map[int]models.Anime
 	file    *os.File
 	decoder *csvutil.Decoder
 	encoder *csvutil.Encoder
@@ -80,32 +79,28 @@ func NewCSVStore(cfg Config) (*CSVStore, error) {
 	return store, nil
 }
 
-func (s *CSVStore) GetAllEntries(ctx context.Context) ([]models.Anime, error) {
+func (s *CSVStore) GetEntries(ctx context.Context) (map[int]models.Anime, error) {
 	return s.entries, nil
 }
 
-func (s *CSVStore) FindByTitleOne(ctx context.Context, title string) (models.Anime, error) {
-	index := slices.IndexFunc(s.entries, func(e models.Anime) bool {
-		return e.Title == title
-	})
-
-	if index == -1 {
+func (s *CSVStore) FindTitleByID(ctx context.Context, id int) (models.Anime, error) {
+	title, found := s.entries[id]
+	if !found {
 		return models.Anime{}, store.ErrAnimeTitleNotFound
 	}
-
-	return s.entries[index], nil
+	return title, nil
 }
 
-func (s *CSVStore) FindAllMatchingByTitle(ctx context.Context, title string) ([]models.Anime, error) {
-	matching := []models.Anime{}
+func (s *CSVStore) FindAllMatchingByTitle(ctx context.Context, title string) (map[int]models.Anime, error) {
+	matching := map[int]models.Anime{}
 
-	for _, anime := range s.entries {
+	for id, anime := range s.entries {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 			if strings.HasPrefix(anime.Title, title) {
-				matching = append(matching, anime)
+				matching[id] = anime
 			}
 		}
 	}
@@ -117,16 +112,13 @@ func (s *CSVStore) FindAllMatchingByTitle(ctx context.Context, title string) ([]
 	return matching, nil
 }
 
-func (s *CSVStore) UpdateEntryByTitle(ctx context.Context, title string, updated models.Anime) (upd models.Anime, err error) {
-	index := slices.IndexFunc(s.entries, func(e models.Anime) bool {
-		return e.Title == title
-	})
-
-	if index == -1 {
+func (s *CSVStore) UpdateEntryByID(ctx context.Context, id int, updated models.Anime) (upd models.Anime, err error) {
+	_, found := s.entries[id]
+	if !found {
 		return models.Anime{}, store.ErrAnimeTitleNotFound
 	}
 
-	s.entries[index] = updated
+	s.entries[id] = updated
 
 	if err := s.WriteChangesToDisk(ctx); err != nil {
 		return models.Anime{}, err
@@ -135,20 +127,18 @@ func (s *CSVStore) UpdateEntryByTitle(ctx context.Context, title string, updated
 	return updated, nil
 }
 
-func (s *CSVStore) DeleteEntryByTitle(ctx context.Context, title string) error {
-	index := slices.IndexFunc(s.entries, func(e models.Anime) bool {
-		return e.Title == title
-	})
-
-	if index == -1 {
+func (s *CSVStore) DeleteEntryByID(ctx context.Context, id int) error {
+	_, found := s.entries[id]
+	if !found {
 		return store.ErrAnimeTitleNotFound
 	}
 
-	s.entries = slices.Delete(s.entries, index, index+1)
+	delete(s.entries, id)
 
 	return s.WriteChangesToDisk(ctx)
 }
 
+// should be called once, on app start
 func (s *CSVStore) readWatchHistory() error {
 	anime := make([]models.Anime, 0, 30)
 
@@ -156,11 +146,18 @@ func (s *CSVStore) readWatchHistory() error {
 		return fmt.Errorf("failed to unmarshal watch history: %w", err)
 	}
 
-	s.entries = anime
+	s.entries = make(map[int]models.Anime, len(anime))
+	for i, anime := range anime {
+		s.entries[i] = anime
+	}
+
 	return nil
 }
 
 func (s *CSVStore) WriteChangesToDisk(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.file.Truncate(0); err != nil {
 		return err
 	}
