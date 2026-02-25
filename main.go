@@ -1,125 +1,190 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"time"
 
-	"codeberg.org/jim-ww/ani-tui/internal/lib/logger"
-	"codeberg.org/jim-ww/ani-tui/internal/store"
-	"codeberg.org/jim-ww/ani-tui/internal/store/csv"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/evertras/bubble-table/table"
-	"github.com/lmittmann/tint"
 )
 
-var (
-	dataPath    = flag.String("data", "storage/data.csv", "path to the data file")
-	timeFormat  = flag.String("time-format", "2006-01-02", "time format for parsing dates, time")
-	slogLevel   = flag.String("log-level", "debug", "log level")
-	logFilePath = flag.String("log-file", "storage/log.txt", "path to the log file")
-)
+var timeFormat = flag.String("t", "2006-01-02", "date/time format")
 
 func main() {
 	flag.Parse()
-	if err := run(); err != nil {
-		log.Fatalf("Error during execution: %v", err)
-	}
-}
-
-func run() error {
-	store, err := csv.NewCSVStore(csv.Config{
-		FilePath:   *dataPath,
-		TimeFormat: *timeFormat,
-	})
+	// TODO ensure only 1 instance is running
+	// check for running processes / run server on some port?
+	store, err := NewStore()
 	if err != nil {
-		return fmt.Errorf("failed to create csv store: %w", err)
+		log.Fatal(err)
 	}
 	defer store.Close()
 
-	var logWriter io.WriteCloser = os.Stdout
-	if *logFilePath != "" {
-		logWriter, err = os.OpenFile(*logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if len(os.Getenv("DEBUG")) > 0 {
+		f, err := tea.LogToFile("debug.log", "debug")
 		if err != nil {
-			return fmt.Errorf("failed to open log file: %w", err)
+			log.Fatal(err)
 		}
-		defer logWriter.Close()
+		defer f.Close()
 	}
-
-	slog.SetDefault(slog.New(tint.NewHandler(logWriter, &tint.Options{Level: logger.ParseLogLevel(*slogLevel)})))
 
 	m := newModel(store)
 	_, err = tea.NewProgram(m).Run()
 	if err != nil {
-		return fmt.Errorf("failed to run tea program: %w", err)
+		log.Fatal(err)
 	}
-
-	return nil
 }
-
-type errMsg error
 
 type model struct {
-	echoMode       textinput.EchoMode
-	store          store.Store
-	tableModel     table.Model
-	selectedRowID  int
-	selectedColumn int
+	echoMode textinput.EchoMode
+	store    *Store
+	table    table.Model
 }
 
-func newModel(store store.Store) *model {
-	return &model{store: store}
-}
+const (
+	columnKeyID            = "id"
+	columnKeyStatus        = "status"
+	columnKeyTitle         = "title"
+	columnKeyProgress      = "progress"
+	columnKeyLocalScore    = "local_score"
+	columnKeyStartDate     = "start_date"
+	columnKeyFinishDate    = "finish_date"
+	columnKeyLastWatchDate = "last_watch_date"
+	columnKeyTotalRewatch  = "total_rewatch"
+)
 
-func (model) Init() tea.Cmd { return nil }
-func (m model) View() string {
-	entries, _ := m.store.GetEntries(context.TODO())
-	view := ""
-	for i, a := range entries {
-		if i == m.selectedRowID {
-			view += fmt.Sprintf("* %s\n", a.Title)
-			// view += fmt.Sprintf("* %s, %s, %d ep, %.1f, %s, %s, %s\n", a.Status.Symbol(), a.Title, a.Progress, a.LocalScore, a.StartDate, a.FinishDate, a.Notes)
-		} else {
-			// view += fmt.Sprintf("  %s, %s, %d ep, %.1f, %s, %s, %s\n", a.Status.Symbol(), a.Title, a.Progress, a.LocalScore, a.StartDate, a.FinishDate, a.Notes)
-			view += fmt.Sprintf("  %s\n", a.Title)
+var bindingQuit = key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit"))
+
+func newModel(store *Store) *model {
+	entries := store.GetEntries()
+
+	formatStatus := func(s Status) string {
+		switch s {
+		case StatusCompleted:
+			return "[*]"
+		case StatusWatching:
+			return "[ ]"
+		case StatusPlanToWatch:
+			return ">>"
+		case StatusDropped:
+			return "-"
+		case StatusPaused:
+			return "||"
+		case StatusRewatching:
+			return "<<"
+		default:
+			return "unknown"
 		}
 	}
-	return view
-	// return m.tableModel.View()
+
+	formatDate := func(date time.Time) string {
+		if date.IsZero() {
+			return "-"
+		}
+		return date.Format("02.01.2006")
+	}
+
+	rows := make([]table.Row, 0, len(entries))
+	for id, a := range entries {
+		r := table.NewRow(table.RowData{
+			columnKeyID:            id,
+			columnKeyStatus:        formatStatus(a.Status),
+			columnKeyTitle:         a.Title,
+			columnKeyProgress:      a.Progress,
+			columnKeyLocalScore:    a.LocalScore,
+			columnKeyStartDate:     formatDate(a.StartDate),
+			columnKeyFinishDate:    formatDate(a.FinishDate),
+			columnKeyLastWatchDate: formatDate(a.LastWatchDate),
+			columnKeyTotalRewatch:  a.TotalRewatch,
+		})
+		rows = append(rows, r)
+	}
+
+	t := table.New([]table.Column{
+		table.NewColumn(columnKeyStatus, "Status", 5).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyTitle, "Title", 50).WithStyle(lipgloss.NewStyle().Align(lipgloss.Left)),
+		table.NewColumn(columnKeyProgress, "Progress", 8).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyLocalScore, "Local Score", 10).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyStartDate, "Start Date", 15).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyFinishDate, "Finish Date", 15).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyLastWatchDate, "Last Watched", 15).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyTotalRewatch, "Rewatch Count", 15).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+	}).Border(customBorder).Focused(true).WithAdditionalShortHelpKeys([]key.Binding{bindingQuit}).WithRows(rows).WithBaseStyle(baseStyle)
+
+	return &model{
+		store: store,
+		table: t,
+	}
 }
+
+func (m model) Init() tea.Cmd { return tea.ClearScreen }
+
+func (m model) View() string {
+	body := strings.Builder{}
+
+	body.WriteString("A very simple default table (non-interactive)\nPress q or ctrl+c to quit\n\n")
+
+	body.WriteString(m.table.View())
+
+	return body.String()
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	ctx := context.TODO()
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
+
+	m.table, cmd = m.table.Update(msg)
+	cmds = append(cmds, cmd)
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", tea.KeyCtrlC.String():
-			return m, tea.Quit
+		case tea.KeyCtrlC.String(), "esc", "q":
+			cmds = append(cmds, tea.Quit)
 		case "a":
-			return m, tea.ClearScreen
+			cmds = append(cmds, tea.ClearScreen)
+			// TODO: Implement the logic for adding a new entry to the table (text inputs for entering title, notes, status enum select, progress (ep) num, etc)
+			//
+		case "e":
+		// TODO: Implement editing logic
+		case "r":
+		// shortcut: rename
+		case tea.KeySpace.String():
+		// shortcut: change status
+		case "/":
+			// TODO: Implement Search functionality (by title) (using exiting levenshtein(a, b string) (distance int) func)
+		case "f":
+		// TODO: Implement Filter functionalitya (by: status, title, other fields?)
+		case "y":
+			// TODO: Imeplement copy entry (create duplicate)
 		case "d":
-			if err := m.store.DeleteEntryByID(ctx, m.selectedRowID); err != nil {
-				slog.Error("Failed to delete by ID", "id", m.selectedRowID, "error", err)
+			if err := m.store.DeleteEntryByID(m.store.GetEntries()[m.table.GetHighlightedRowIndex()].id); err != nil {
+				slog.Error("Failed to delete by ID", "error", err)
 			}
-
-			return m, nil
-			// show dialog, for adding new anime? asking title,
-			// case "j", tea.KeyDown.String():
-			// if m.sselectedRowID< len(m.anime)-1 {
-			// m.sselectedRowID+
-			// }
-			// return m, nil
-			// case "k", tea.KeyUp.String():
-			// if m.sselectedRowID> 0 {
-			// m.sselectedRowID-
-			// }
-			// return m, nil
+		case tea.KeyEnter.String():
+			anime, err := m.store.FindTitleByID(m.store.GetEntries()[m.table.GetHighlightedRowIndex()].id)
+			if err != nil {
+				return m, nil // TODO return err
+			}
+			fmt.Println(anime.Title)
+			if err := exec.Command("ani-cli", anime.Title, "-e", strconv.Itoa(anime.Progress)).Start(); err != nil {
+				slog.Error("Failed to run ani-cli", "title", anime.Title, "error", err)
+			}
+			return m, tea.Batch(cmds...)
 		}
 	}
-	return m, nil
+
+	return m, tea.Batch(cmds...)
 }
