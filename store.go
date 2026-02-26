@@ -17,9 +17,7 @@ import (
 	"github.com/jszwec/csvutil"
 )
 
-var (
-	ErrAnimeTitleNotFound = errors.New("anime title not found")
-)
+var ErrAnimeTitleNotFound = errors.New("anime title not found")
 
 type Status string
 
@@ -52,7 +50,6 @@ type Anime struct {
 type Store struct {
 	entries []Anime
 	file    *os.File
-	decoder *csvutil.Decoder
 	encoder *csvutil.Encoder
 }
 
@@ -62,11 +59,11 @@ func NewStore() (*Store, error) {
 		return nil, fmt.Errorf("failed to get data path: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dataPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dataPath), 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create directories: %w", err)
 	}
 
-	file, err := os.OpenFile(dataPath, os.O_RDWR|os.O_CREATE, 0644)
+	file, err := os.OpenFile(dataPath, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: path=%s err=%w", dataPath, err)
 	}

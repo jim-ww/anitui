@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"log/slog"
 	"net"
@@ -13,6 +12,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/evertras/bubble-table/table"
@@ -22,6 +23,7 @@ var timeFormat = flag.String("t", "2006-01-02", "date/time format")
 
 func main() {
 	flag.Parse()
+
 	// Ensure only 1 instance is running
 	listener, err := net.Listen("tcp", "127.0.0.1:63219")
 	if err != nil {
@@ -32,6 +34,7 @@ func main() {
 			log.Printf("Error closing listener: %v", err)
 		}
 	}()
+
 	store, err := NewStore()
 	if err != nil {
 		log.Fatal(err)
@@ -42,7 +45,7 @@ func main() {
 		}
 	}()
 
-	if len(os.Getenv("DEBUG")) > 0 {
+	if os.Getenv("DEBUG") != "" {
 		f, err := tea.LogToFile("debug.log", "debug")
 		if err != nil {
 			log.Fatal(err)
@@ -61,9 +64,14 @@ func main() {
 	}
 }
 
+type errMsg error
+
 type model struct {
-	store *Store
-	table table.Model
+	store    *Store
+	table    table.Model
+	title    textinput.Model
+	status   textarea.Model
+	progress textarea.Model
 }
 
 const (
@@ -86,19 +94,19 @@ func newModel(store *Store) *model {
 	formatStatus := func(s Status) string {
 		switch s {
 		case StatusCompleted:
-			return "[*]"
+			return "✓"
 		case StatusWatching:
-			return "[ ]"
+			return "▷"
 		case StatusPlanToWatch:
-			return ">>"
+			return "⏳"
 		case StatusDropped:
-			return "-"
+			return "✗"
 		case StatusPaused:
-			return "||"
+			return "⏸"
 		case StatusRewatching:
-			return "<<"
+			return "↺"
 		default:
-			return "unknown"
+			return "?"
 		}
 	}
 
@@ -125,16 +133,18 @@ func newModel(store *Store) *model {
 		rows = append(rows, r)
 	}
 
+	const pageSize = 30 // must depend on window, font size
+
 	t := table.New([]table.Column{
 		table.NewColumn(columnKeyStatus, "Status", 5).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
-		table.NewColumn(columnKeyTitle, "Title", 50).WithStyle(lipgloss.NewStyle().Align(lipgloss.Left)),
+		table.NewColumn(columnKeyTitle, "Title", 50).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
 		table.NewColumn(columnKeyProgress, "Progress", 8).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
-		table.NewColumn(columnKeyLocalScore, "Local Score", 10).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
-		table.NewColumn(columnKeyStartDate, "Start Date", 15).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
-		table.NewColumn(columnKeyFinishDate, "Finish Date", 15).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
-		table.NewColumn(columnKeyLastWatchDate, "Last Watched", 15).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
-		table.NewColumn(columnKeyTotalRewatch, "Rewatch Count", 15).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
-	}).Border(customBorder).Focused(true).WithAdditionalShortHelpKeys([]key.Binding{bindingQuit}).WithRows(rows).WithBaseStyle(baseStyle)
+		table.NewColumn(columnKeyLocalScore, "Score", 10).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyStartDate, "Started", 10).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyFinishDate, "Finished", 10).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyLastWatchDate, "Last Watched", 13).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewColumn(columnKeyTotalRewatch, "Rewatched", 11).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+	}).Border(customBorder).Focused(true).WithAdditionalShortHelpKeys([]key.Binding{bindingQuit}).WithRows(rows).WithBaseStyle(baseStyle).WithMaxTotalWidth(250).WithHorizontalFreezeColumnCount(1).WithPageSize(pageSize) //.WithStaticFooter()
 
 	return &model{
 		store: store,
@@ -142,15 +152,15 @@ func newModel(store *Store) *model {
 	}
 }
 
+// func genRows(columnCount int, rowCount int, data []Anime) []table.Row {
+// 	rows := make([]table.)
+// }
+
 func (m model) Init() tea.Cmd { return tea.ClearScreen }
 
 func (m model) View() string {
 	body := strings.Builder{}
-
-	body.WriteString("A very simple default table (non-interactive)\nPress q or ctrl+c to quit\n\n")
-
 	body.WriteString(m.table.View())
-
 	return body.String()
 }
 
@@ -169,7 +179,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC.String(), "esc", "q":
 			cmds = append(cmds, tea.Quit)
 		case "a":
-			cmds = append(cmds, tea.ClearScreen)
+			title := m.title.Value()
+			if title == "" {
+				// TODO: handle
+				// return m, "Title cannot be empty"
+			}
+			progress, err := strconv.Atoi(m.progress.Value())
+			if err != nil {
+				// return m, tea.Error("Progress must be a number")
+			}
+			newEntry := Anime{
+				id:       strconv.Itoa(len(m.store.GetEntries())),
+				Title:    title,
+				Status:   StatusPlanToWatch,
+				Progress: progress,
+			}
+			_ = newEntry
+			// m.store.InsertNewEntry(newEntry.id, newEntry)
+			return m, tea.Batch(tea.ClearScreen)
+
 			// TODO: Implement the logic for adding a new entry to the table (text inputs for entering title, notes, status enum select, progress (ep) num, etc)
 			//
 		case "e":
@@ -179,7 +207,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeySpace.String():
 		// shortcut: change status
 		case "/":
-			// TODO: Implement Search functionality (by title) (using exiting levenshtein(a, b string) (distance int) func)
+		// TODO: Implement Search functionality (by title) (using exiting levenshtein(a, b string) (distance int) func)
 		case "f":
 		// TODO: Implement Filter functionalitya (by: status, title, other fields?)
 		case "y":
@@ -191,13 +219,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter.String():
 			anime, err := m.store.FindTitleByID(m.store.GetEntries()[m.table.GetHighlightedRowIndex()].id)
 			if err != nil {
-				return m, nil // TODO return err
+				return m, nil // TODO: return err
 			}
-			fmt.Println(anime.Title)
-			if err := exec.Command("ani-cli", anime.Title, "-e", strconv.Itoa(anime.Progress)).Start(); err != nil {
-				slog.Error("Failed to run ani-cli", "title", anime.Title, "error", err)
+			// Check if progress is greater than 1
+			if anime.Progress > 1 {
+				// TODO: implement prompting user for confirmation, use Bubbles ui libary
+				// Prompt the user for confirmation
+				// "Continue watching where you left off? (y/n): "
+				// if yes {
+				// if err := exec.Command("ani-cli", anime.Title, "-e", strconv.Itoa(anime.Progress)).Start(); err != nil {
+				// slog.Error("Failed to run ani-cli", "title", anime.Title, "error", err)
+				// }
+				// }
+			} else {
+				if err := exec.Command("ani-cli", anime.Title).Start(); err != nil {
+					slog.Error("Failed to run ani-cli", "title", anime.Title, "error", err)
+				}
 			}
 			return m, tea.Batch(cmds...)
+		default:
+			m.title, cmd = m.title.Update(msg)
+			m.status, cmd = m.status.Update(msg)
+			m.progress, cmd = m.progress.Update(msg)
 		}
 	}
 
