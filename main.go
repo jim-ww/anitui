@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/evertras/bubble-table/table"
@@ -22,20 +22,36 @@ var timeFormat = flag.String("t", "2006-01-02", "date/time format")
 
 func main() {
 	flag.Parse()
-	// TODO ensure only 1 instance is running
-	// check for running processes / run server on some port?
+	// Ensure only 1 instance is running
+	listener, err := net.Listen("tcp", "127.0.0.1:63219")
+	if err != nil {
+		log.Fatal("Another instance is already running")
+	}
+	defer func() {
+		if err := listener.Close(); err != nil {
+			log.Printf("Error closing listener: %v", err)
+		}
+	}()
 	store, err := NewStore()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Printf("Error closing store: %v", err)
+		}
+	}()
 
 	if len(os.Getenv("DEBUG")) > 0 {
 		f, err := tea.LogToFile("debug.log", "debug")
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer f.Close()
+		defer func() {
+			if err := f.Close(); err != nil {
+				log.Printf("Error closing log file: %v", err)
+			}
+		}()
 	}
 
 	m := newModel(store)
@@ -46,9 +62,8 @@ func main() {
 }
 
 type model struct {
-	echoMode textinput.EchoMode
-	store    *Store
-	table    table.Model
+	store *Store
+	table table.Model
 }
 
 const (
