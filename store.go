@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/rand"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -95,7 +95,7 @@ func NewStore() (*Store, error) {
 			return nil, fmt.Errorf("failed to read watch history: %w", err)
 		}
 		for i := range entries {
-			entries[i].id = strconv.Itoa(i)
+			entries[i].id = rand.Text()[:10]
 		}
 	}
 

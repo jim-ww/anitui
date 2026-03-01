@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -67,11 +68,14 @@ func main() {
 type errMsg error
 
 type model struct {
+	height   int
+	width    int
 	store    *Store
 	table    table.Model
 	title    textinput.Model
 	status   textarea.Model
 	progress textarea.Model
+	help     help.Model
 }
 
 const (
@@ -89,6 +93,13 @@ const (
 var bindingQuit = key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit"))
 
 func newModel(store *Store) *model {
+	m := &model{
+		height: 30,
+		width:  300,
+	}
+	m.store = store
+	m.help = help.New()
+
 	entries := store.GetEntries()
 
 	formatStatus := func(s Status) string {
@@ -133,23 +144,27 @@ func newModel(store *Store) *model {
 		rows = append(rows, r)
 	}
 
-	const pageSize = 30 // must depend on window, font size
-
-	t := table.New([]table.Column{
+	m.table = table.New([]table.Column{
 		table.NewColumn(columnKeyStatus, "Status", 5).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
-		table.NewColumn(columnKeyTitle, "Title", 50).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
+		table.NewFlexColumn(columnKeyTitle, "Title", 1).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
 		table.NewColumn(columnKeyProgress, "Progress", 8).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
 		table.NewColumn(columnKeyLocalScore, "Score", 10).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
 		table.NewColumn(columnKeyStartDate, "Started", 10).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
 		table.NewColumn(columnKeyFinishDate, "Finished", 10).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
 		table.NewColumn(columnKeyLastWatchDate, "Last Watched", 13).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
 		table.NewColumn(columnKeyTotalRewatch, "Rewatched", 11).WithStyle(lipgloss.NewStyle().Align(lipgloss.Center)),
-	}).Border(customBorder).Focused(true).WithAdditionalShortHelpKeys([]key.Binding{bindingQuit}).WithRows(rows).WithBaseStyle(baseStyle).WithMaxTotalWidth(250).WithHorizontalFreezeColumnCount(1).WithPageSize(pageSize) //.WithStaticFooter()
+	}).
+		WithMaxTotalWidth(m.width - 4).
+		WithHorizontalFreezeColumnCount(2).
+		WithPageSize(m.height - 5).
+		Border(customBorder).
+		Focused(true).
+		WithAdditionalShortHelpKeys([]key.Binding{bindingQuit}).
+		WithBaseStyle(baseStyle).
+		WithRows(rows)
+		// WithStaticFooter(m.help.View(m.table)
 
-	return &model{
-		store: store,
-		table: t,
-	}
+	return m
 }
 
 func (m model) Init() tea.Cmd { return tea.ClearScreen }
@@ -172,8 +187,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
-		// m.width = msg.Width
-		// m.height = msg.Height
+		m.width = msg.Width
+		m.height = msg.Height
 		m.table = m.table.
 			WithPageSize(max(3, msg.Height-5)).
 			WithMaxTotalWidth(max(40, msg.Width-4))
