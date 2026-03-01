@@ -152,10 +152,6 @@ func newModel(store *Store) *model {
 	}
 }
 
-// func genRows(columnCount int, rowCount int, data []Anime) []table.Row {
-// 	rows := make([]table.)
-// }
-
 func (m model) Init() tea.Cmd { return tea.ClearScreen }
 
 func (m model) View() string {
@@ -174,6 +170,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 
 	switch msg := msg.(type) {
+
+	case tea.WindowSizeMsg:
+		// m.width = msg.Width
+		// m.height = msg.Height
+		m.table = m.table.
+			WithPageSize(max(3, msg.Height-5)).
+			WithMaxTotalWidth(max(40, msg.Width-4))
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case tea.KeyCtrlC.String(), "esc", "q":
