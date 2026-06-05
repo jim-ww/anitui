@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/evertras/bubble-table/table"
 )
 
@@ -169,10 +169,10 @@ func newModel(store *Store) *model {
 
 func (m model) Init() tea.Cmd { return tea.ClearScreen }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	body := strings.Builder{}
 	body.WriteString(m.table.View())
-	return body.String()
+	return tea.NewView(body.String())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -193,9 +193,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			WithPageSize(max(3, msg.Height-5)).
 			WithMaxTotalWidth(max(40, msg.Width-4))
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
-		case tea.KeyCtrlC.String(), "esc", "q":
+		case "ctrl+c", "esc", "q":
 			cmds = append(cmds, tea.Quit)
 		case "a":
 			title := m.title.Value()
@@ -223,7 +223,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// TODO: Implement editing logic
 		case "r":
 		// shortcut: rename
-		case tea.KeySpace.String():
+		case " ":
 		// shortcut: change status
 		case "/":
 		// TODO: Implement Search functionality (by title) (using exiting levenshtein(a, b string) (distance int) func)
@@ -235,7 +235,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err := m.store.DeleteEntryByID(m.store.GetEntries()[m.table.GetHighlightedRowIndex()].id); err != nil {
 				slog.Error("Failed to delete by ID", "error", err)
 			}
-		case tea.KeyEnter.String():
+		case "enter":
 			anime, err := m.store.FindTitleByID(m.store.GetEntries()[m.table.GetHighlightedRowIndex()].id)
 			if err != nil {
 				return m, nil // TODO: return err

@@ -1,7 +1,8 @@
 package main
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 	"github.com/evertras/bubble-table/table"
 )
 
@@ -59,35 +60,42 @@ var (
 var (
 	idColumnStyle = lipgloss.NewStyle().
 			Faint(true).
-			Foreground(lipgloss.AdaptiveColor{Light: catppuccinLatte["idColumnStyle"], Dark: catppuccinMocha["idColumnStyle"]})
+			Foreground(adaptiveColor(catppuccinLatte["idColumnStyle"], catppuccinMocha["idColumnStyle"]))
 
 	imageColumnStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: catppuccinLatte["imageColumnStyle"], Dark: catppuccinMocha["imageColumnStyle"]}).
+				Foreground(adaptiveColor(catppuccinLatte["imageColumnStyle"], catppuccinMocha["imageColumnStyle"])).
 				Faint(true)
 
 	headerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: catppuccinLatte["headerStyle"], Dark: catppuccinMocha["headerStyle"]}).
+			Foreground(adaptiveColor(catppuccinLatte["headerStyle"], catppuccinMocha["headerStyle"])).
 			Bold(true)
 
 	footerStyle = lipgloss.NewStyle()
 
 	footerBoxNameStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: catppuccinLatte["footerBoxNameStyle"], Dark: catppuccinMocha["footerBoxNameStyle"]}).
+				Foreground(adaptiveColor(catppuccinLatte["footerBoxNameStyle"], catppuccinMocha["footerBoxNameStyle"])).
 				Bold(true)
 
 	baseStyle = lipgloss.NewStyle().
-			BorderForeground(lipgloss.AdaptiveColor{Light: catppuccinLatte["baseStyleBorderFg"], Dark: catppuccinMocha["baseStyleBorderFg"]}).
-			Foreground(lipgloss.AdaptiveColor{Light: catppuccinLatte["baseStyleFg"], Dark: catppuccinMocha["baseStyleFg"]}).
+			BorderForeground(adaptiveColor(catppuccinLatte["baseStyleBorderFg"], catppuccinMocha["baseStyleBorderFg"])).
+			Foreground(adaptiveColor(catppuccinLatte["baseStyleFg"], catppuccinMocha["baseStyleFg"])).
 			Align(lipgloss.Left)
 
 	highlightStyle = lipgloss.NewStyle().
-			Background(lipgloss.AdaptiveColor{Light: catppuccinLatte["highlightStyleBg"], Dark: catppuccinMocha["highlightStyleBg"]}).
-			Foreground(lipgloss.AdaptiveColor{Light: catppuccinLatte["highlightStyleFg"], Dark: catppuccinMocha["highlightStyleFg"]})
+			Background(adaptiveColor(catppuccinLatte["highlightStyleBg"], catppuccinMocha["highlightStyleBg"])).
+			Foreground(adaptiveColor(catppuccinLatte["highlightStyleFg"], catppuccinMocha["highlightStyleFg"]))
 
 	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: catppuccinLatte["titleStyleFg"], Dark: catppuccinMocha["titleStyleFg"]}).
+			Foreground(adaptiveColor(catppuccinLatte["titleStyleFg"], catppuccinMocha["titleStyleFg"])).
 			Bold(true)
 
 	subtleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: catppuccinLatte["subtleStyleFg"], Dark: catppuccinMocha["subtleStyleFg"]})
+			Foreground(adaptiveColor(catppuccinLatte["subtleStyleFg"], catppuccinMocha["subtleStyleFg"]))
 )
+
+func adaptiveColor(light, dark string) compat.AdaptiveColor {
+	return compat.AdaptiveColor{
+		Light: lipgloss.Color(light),
+		Dark:  lipgloss.Color(dark),
+	}
+}
