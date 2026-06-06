@@ -4,13 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
@@ -18,7 +16,7 @@ import (
 	"github.com/evertras/bubble-table/table"
 )
 
-var dataFile = flag.String("file", "anime-progress.csv", "anime CSV file")
+var dataFile = flag.String("file", "", "anime TOML file (default: XDG data dir)")
 
 func main() {
 	flag.Parse()
@@ -36,11 +34,11 @@ func main() {
 	defer store.Close()
 
 	if os.Getenv("DEBUG") != "" {
-		file, err := tea.LogToFile("debug.log", "debug")
+		f, err := tea.LogToFile("debug.log", "debug")
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer file.Close()
+		defer f.Close()
 	}
 
 	if _, err := tea.NewProgram(newModel(store)).Run(); err != nil {
@@ -48,39 +46,32 @@ func main() {
 	}
 }
 
+// ── App modes ─────────────────────────────────────────────────────────────────
+
 type appMode int
 
 const (
 	modeList appMode = iota
 	modeAdd
 	modeEdit
+	modeStatusSelect
 )
 
-type model struct {
-	width  int
-	height int
+// ── Model ─────────────────────────────────────────────────────────────────────
 
-	store *Store
-	table table.Model
+type model struct {
+	width, height int
+	store         *Store
+	tbl           table.Model
 
 	mode    appMode
 	form    entryForm
 	status  string
 	errText string
-}
 
-const (
-	columnKeyID            = "id"
-	columnKeyStatus        = "status"
-	columnKeyTitle         = "title"
-	columnKeyProgress      = "progress"
-	columnKeyLocalScore    = "local_score"
-	columnKeyStartDate     = "start_date"
-	columnKeyFinishDate    = "finish_date"
-	columnKeyLastWatchDate = "last_watch_date"
-	columnKeyTotalRewatch  = "total_rewatch"
-	columnKeyNotes         = "notes"
-)
+	// status-select overlay
+	statusCursor int
+}
 
 var bindingQuit = key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit"))
 
@@ -89,57 +80,94 @@ func newModel(store *Store) *model {
 		width:  120,
 		height: 30,
 		store:  store,
-		status: fmt.Sprintf("loaded %d entries from %s", len(store.Entries()), store.Path()),
+		status: fmt.Sprintf("loaded %d entries · %s", len(store.Entries()), store.Path()),
 	}
 	m.rebuildTable(0)
 	return m
 }
 
-func (m model) Init() tea.Cmd {
+func (m *model) Init() tea.Cmd {
 	return tea.ClearScreen
 }
 
-func (m model) View() tea.View {
-	var body strings.Builder
-	body.WriteString(titleStyle.Render("anitui"))
-	body.WriteString("\n")
+// ── View ──────────────────────────────────────────────────────────────────────
+
+func (m *model) View() tea.View {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("  anitui"))
+	b.WriteString("  ")
+	b.WriteString(helpStyle.Render(fmt.Sprintf("(%d)", len(m.store.Entries()))))
+	b.WriteString("\n")
 
 	switch m.mode {
 	case modeAdd, modeEdit:
-		body.WriteString(m.form.View())
+		b.WriteString(m.form.View())
+
+	case modeStatusSelect:
+		b.WriteString(m.statusSelectView())
+
 	default:
-		body.WriteString(m.table.View())
-		body.WriteString("\n")
-		body.WriteString(helpStyle.Render("a add  e edit  d delete  space status  +/- progress  enter play  q quit"))
+		b.WriteString(m.tbl.View())
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render(
+			"a add  e edit  d del  space status  +/- ep  enter play  q quit",
+		))
 	}
 
+	b.WriteString("\n")
 	if m.errText != "" {
-		body.WriteString("\n")
-		body.WriteString(errorStyle.Render(m.errText))
+		b.WriteString(errorStyle.Render("  ✗ " + m.errText))
 	} else if m.status != "" {
-		body.WriteString("\n")
-		body.WriteString(subtleStyle.Render(m.status))
+		b.WriteString(subtleStyle.Render("  " + m.status))
 	}
 
-	return tea.NewView(body.String())
+	return tea.NewView(b.String())
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.mode == modeAdd || m.mode == modeEdit {
-		return m.updateForm(msg)
+func (m *model) statusSelectView() string {
+	list := StatusList()
+	var b strings.Builder
+	b.WriteString(formTitleStyle.Render("  Select Status") + "\n\n")
+	for i, s := range list {
+		prefix := "   "
+		if i == m.statusCursor {
+			prefix = " ▸ "
+		}
+		line := prefix + styledStatus(s) + "\n"
+		b.WriteString(line)
 	}
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render("  ↑/↓ move  enter confirm  esc cancel"))
+	return b.String()
+}
 
+// ── Update ────────────────────────────────────────────────────────────────────
+
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch m.mode {
+	case modeAdd, modeEdit:
+		return m.updateForm(msg)
+	case modeStatusSelect:
+		return m.updateStatusSelect(msg)
+	}
+	return m.updateList(msg)
+}
+
+func (m *model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	m.table, cmd = m.table.Update(msg)
+	m.tbl, cmd = m.tbl.Update(msg)
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.rebuildTable(m.highlightedIndex())
-	case tea.KeyPressMsg:
+	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "esc", "q":
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "esc":
 			return m, tea.Quit
 		case "a":
 			m.startAdd()
@@ -148,24 +176,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d", "delete":
 			m.deleteSelected()
 		case " ":
-			m.cycleSelectedStatus()
+			m.openStatusSelect()
 		case "+", "=":
-			m.adjustSelectedProgress(1)
+			m.adjustProgress(1)
 		case "-":
-			m.adjustSelectedProgress(-1)
+			m.adjustProgress(-1)
 		case "enter":
 			m.playSelected()
 		}
 	}
-
 	return m, cmd
 }
 
-func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
+func (m *model) updateStatusSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
+	list := StatusList()
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			m.mode = modeList
+			m.status = "cancelled"
+		case "up", "k":
+			m.statusCursor = (m.statusCursor - 1 + len(list)) % len(list)
+		case "down", "j":
+			m.statusCursor = (m.statusCursor + 1) % len(list)
+		case "enter":
+			m.applyStatusSelect(list[m.statusCursor])
+		}
+	}
+	return m, nil
+}
 
-	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		switch keyMsg.String() {
+func (m *model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
@@ -188,70 +233,63 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-
+	var cmds []tea.Cmd
 	for i := range m.form.inputs {
-		updated, cmd := m.form.inputs[i].Update(msg)
-		m.form.inputs[i] = updated
+		var cmd tea.Cmd
+		m.form.inputs[i], cmd = m.form.inputs[i].Update(msg)
 		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)
 }
+
+// ── Table helpers ─────────────────────────────────────────────────────────────
 
 func (m *model) rebuildTable(highlighted int) {
 	entries := m.store.Entries()
 	if highlighted >= len(entries) {
 		highlighted = max(0, len(entries)-1)
 	}
-	m.table = newAnimeTable(m.width, m.height, animeRows(entries)).
-		WithHighlightedRow(highlighted)
-}
-
-func animeRows(entries []Anime) []table.Row {
+	cols := animeColumns(m.width)
 	rows := make([]table.Row, 0, len(entries))
-	for _, entry := range entries {
+	for _, e := range entries {
+		cw := e.CurrentWatch()
 		rows = append(rows, table.NewRow(table.RowData{
-			columnKeyID:            entry.ID,
-			columnKeyStatus:        fmt.Sprintf("[%s] %s", entry.Status.Symbol(), entry.Status.String()),
-			columnKeyTitle:         entry.Title,
-			columnKeyProgress:      entry.Progress,
-			columnKeyLocalScore:    displayScore(entry.LocalScore),
-			columnKeyStartDate:     displayDate(entry.StartDate),
-			columnKeyFinishDate:    displayDate(entry.FinishDate),
-			columnKeyLastWatchDate: displayDate(entry.LastWatchDate),
-			columnKeyTotalRewatch:  entry.TotalRewatch,
-			columnKeyNotes:         entry.Notes,
+			colKeyStatus:    styledStatus(e.Status()),
+			colKeyTitle:     e.Title,
+			colKeyProgress:  fmtProgress(e.Progress),
+			colKeyRating:    fmtRating(e.Rating),
+			colKeyStartDate: fmtDate(cw.StartDate),
+			colKeyEndDate:   fmtDate(cw.EndDate),
+			colKeyRewatch:   fmtRewatch(e.TotalRewatch()),
+			colKeyNotes:     e.Notes,
 		}))
 	}
-	return rows
-}
-
-func newAnimeTable(width, height int, rows []table.Row) table.Model {
-	return table.New(animeColumns()).
+	m.tbl = table.New(cols).
 		WithRows(rows).
-		WithMaxTotalWidth(max(80, width-4)).
+		WithMaxTotalWidth(max(80, m.width-2)).
 		WithHorizontalFreezeColumnCount(2).
-		WithPageSize(max(3, height-7)).
+		WithPageSize(max(3, m.height-6)).
 		Border(customBorder).
 		Focused(true).
 		WithAdditionalShortHelpKeys([]key.Binding{bindingQuit}).
 		WithBaseStyle(baseStyle).
 		HeaderStyle(headerStyle).
-		HighlightStyle(highlightStyle)
+		HighlightStyle(highlightStyle).
+		WithHighlightedRow(highlighted)
 }
 
-func (m *model) highlightedIndex() int {
-	return m.table.GetHighlightedRowIndex()
-}
+func (m *model) highlightedIndex() int { return m.tbl.GetHighlightedRowIndex() }
 
 func (m *model) selectedEntry() (Anime, bool) {
 	return m.store.EntryByIndex(m.highlightedIndex())
 }
 
+// ── Actions ───────────────────────────────────────────────────────────────────
+
 func (m *model) startAdd() {
 	m.mode = modeAdd
-	m.form = newEntryForm(Anime{Status: StatusPlanToWatch})
-	m.status = ""
-	m.errText = ""
+	m.form = newEntryForm(Anime{})
+	m.status, m.errText = "", ""
 }
 
 func (m *model) startEdit() {
@@ -262,8 +300,7 @@ func (m *model) startEdit() {
 	}
 	m.mode = modeEdit
 	m.form = newEntryForm(entry)
-	m.status = ""
-	m.errText = ""
+	m.status, m.errText = "", ""
 }
 
 func (m *model) cancelForm() {
@@ -274,12 +311,11 @@ func (m *model) cancelForm() {
 }
 
 func (m *model) saveForm() {
-	entry, err := m.form.entry()
+	entry, err := m.form.build()
 	if err != nil {
 		m.errText = err.Error()
 		return
 	}
-
 	highlighted := m.highlightedIndex()
 	switch m.mode {
 	case modeAdd:
@@ -295,17 +331,18 @@ func (m *model) saveForm() {
 			m.errText = "entry no longer exists"
 			return
 		}
-		entry.StartDate = existing.StartDate
-		entry.FinishDate = existing.FinishDate
-		entry.LastWatchDate = existing.LastWatchDate
-		entry.TotalRewatch = existing.TotalRewatch
+		// preserve watch history
+		entry.Watches = existing.Watches
+		// update current watch status if changed
+		if len(entry.Watches) > 0 {
+			entry.Watches[len(entry.Watches)-1].Status = m.form.status
+		}
 		if _, err := m.store.Update(m.form.id, entry); err != nil {
 			m.errText = err.Error()
 			return
 		}
 		m.status = "entry updated"
 	}
-
 	m.mode = modeList
 	m.form = entryForm{}
 	m.errText = ""
@@ -328,23 +365,47 @@ func (m *model) deleteSelected() {
 	m.rebuildTable(highlighted)
 }
 
-func (m *model) cycleSelectedStatus() {
+func (m *model) openStatusSelect() {
 	entry, ok := m.selectedEntry()
 	if !ok {
 		m.errText = "nothing selected"
 		return
 	}
-	updated, err := m.store.CycleStatus(entry.ID)
-	if err != nil {
-		m.errText = err.Error()
+	list := StatusList()
+	m.statusCursor = 0
+	for i, s := range list {
+		if s == entry.Status() {
+			m.statusCursor = i
+			break
+		}
+	}
+	m.mode = modeStatusSelect
+	m.status, m.errText = "", ""
+}
+
+func (m *model) applyStatusSelect(s Status) {
+	entry, ok := m.selectedEntry()
+	if !ok {
+		m.errText = "nothing selected"
+		m.mode = modeList
 		return
 	}
-	m.errText = ""
-	m.status = fmt.Sprintf("%q is now %s", updated.Title, updated.Status)
+	if len(entry.Watches) == 0 {
+		entry.Watches = []WatchRecord{{Status: s}}
+	} else {
+		entry.Watches[len(entry.Watches)-1].Status = s
+	}
+	if _, err := m.store.Update(entry.ID, entry); err != nil {
+		m.errText = err.Error()
+		m.mode = modeList
+		return
+	}
+	m.status = fmt.Sprintf("%q → %s", entry.Title, s)
+	m.mode = modeList
 	m.rebuildTable(m.highlightedIndex())
 }
 
-func (m *model) adjustSelectedProgress(delta int) {
+func (m *model) adjustProgress(delta int) {
 	entry, ok := m.selectedEntry()
 	if !ok {
 		m.errText = "nothing selected"
@@ -356,7 +417,7 @@ func (m *model) adjustSelectedProgress(delta int) {
 		return
 	}
 	m.errText = ""
-	m.status = fmt.Sprintf("%q progress: %d", updated.Title, updated.Progress)
+	m.status = fmt.Sprintf("%q  ep %d", updated.Title, updated.Progress)
 	m.rebuildTable(m.highlightedIndex())
 }
 
@@ -371,157 +432,213 @@ func (m *model) playSelected() {
 		args = append(args, "-e", strconv.Itoa(entry.Progress))
 	}
 	if err := exec.Command("ani-cli", args...).Start(); err != nil {
-		slog.Error("failed to run ani-cli", "title", entry.Title, "error", err)
 		m.errText = err.Error()
 		return
 	}
 	m.errText = ""
-	m.status = fmt.Sprintf("started ani-cli for %q", entry.Title)
+	m.status = fmt.Sprintf("▶ ani-cli %q ep %d", entry.Title, entry.Progress)
 }
 
-func displayScore(value float32) string {
-	if value == 0 {
-		return "-"
-	}
-	return strconv.FormatFloat(float64(value), 'f', -1, 32)
-}
-
-func displayDate(value time.Time) string {
-	text := formatDate(value)
-	if text == "" {
-		return "-"
-	}
-	return text
-}
+// ── Entry form ────────────────────────────────────────────────────────────────
 
 type entryForm struct {
-	id      string
-	status  Status
+	id     string
+	status Status
+
 	focused int
 	inputs  []textinput.Model
 }
 
 const (
-	formTitle = iota
-	formProgress
-	formScore
-	formNotes
+	fTitle = iota
+	fProgress
+	fRating
+	fNotes
 )
 
-func newEntryForm(entry Anime) entryForm {
+func newEntryForm(e Anime) entryForm {
 	inputs := []textinput.Model{
-		newInput("title", entry.Title, 60),
-		newInput("progress", formatInt(entry.Progress), 10),
-		newInput("score", formatScore(entry.LocalScore), 10),
-		newInput("notes", entry.Notes, 80),
+		makeInput("title", e.Title, 60),
+		makeInput("progress (episodes)", fmtInt(e.Progress), 6),
+		makeInput("rating 0-10", fmtRatingRaw(e.Rating), 6),
+		makeInput("notes", e.Notes, 80),
 	}
-	form := entryForm{
-		id:     entry.ID,
-		status: ParseStatus(entry.Status.String()),
-		inputs: inputs,
-	}
-	form.focus(0)
-	return form
+	status := e.Status()
+	f := entryForm{id: e.ID, status: status, inputs: inputs}
+	f.focus(0)
+	return f
 }
 
-func newInput(placeholder, value string, width int) textinput.Model {
-	input := textinput.New()
-	input.Placeholder = placeholder
-	input.SetWidth(width)
-	input.SetValue(value)
-	return input
+func makeInput(placeholder, value string, width int) textinput.Model {
+	ti := textinput.New()
+	ti.Placeholder = placeholder
+	ti.SetWidth(width)
+	ti.SetValue(value)
+	return ti
 }
 
-func (f entryForm) View() string {
-	var body strings.Builder
-	modeTitle := "Add Entry"
+func (f *entryForm) View() string {
+	modeLabel := "Add Entry"
 	if f.id != "" {
-		modeTitle = "Edit Entry"
+		modeLabel = "Edit Entry"
 	}
-	body.WriteString(formTitleStyle.Render(modeTitle))
-	body.WriteString("\n\n")
-	body.WriteString(f.renderInput("Title", formTitle))
-	body.WriteString("\n")
-	body.WriteString(f.renderInput("Progress", formProgress))
-	body.WriteString("\n")
-	body.WriteString(f.renderInput("Score", formScore))
-	body.WriteString("\n")
-	body.WriteString(f.renderInput("Notes", formNotes))
-	body.WriteString("\n")
-	body.WriteString(formLabelStyle.Render("Status"))
-	body.WriteString(" ")
-	body.WriteString(formValueStyle.Render(f.status.String()))
-	body.WriteString("\n\n")
-	body.WriteString(helpStyle.Render("tab/up/down move  left/right status  enter save  esc cancel"))
-	return formBoxStyle.Render(body.String())
-}
+	var b strings.Builder
+	b.WriteString(formTitleStyle.Render("  "+modeLabel) + "\n\n")
 
-func (f entryForm) renderInput(label string, index int) string {
-	return formLabelStyle.Render(label) + " " + f.inputs[index].View()
-}
-
-func (f *entryForm) nextField() {
-	f.focus((f.focused + 1) % len(f.inputs))
-}
-
-func (f *entryForm) previousField() {
-	next := f.focused - 1
-	if next < 0 {
-		next = len(f.inputs) - 1
+	labels := []string{"Title", "Progress", "Rating", "Notes"}
+	for i, inp := range f.inputs {
+		active := ""
+		if i == f.focused {
+			active = " ◀"
+		}
+		b.WriteString(formLabelStyle.Render(labels[i]))
+		b.WriteString(inp.View())
+		b.WriteString(active + "\n")
 	}
-	f.focus(next)
+
+	b.WriteString("\n")
+	b.WriteString(formLabelStyle.Render("Status"))
+	b.WriteString(styledStatus(f.status))
+	b.WriteString("  ")
+	b.WriteString(helpStyle.Render("← →"))
+	b.WriteString("\n\n")
+	b.WriteString(helpStyle.Render("  tab/↑↓ move  ←/→ status  enter save  esc cancel"))
+	return formBoxStyle.Render(b.String())
 }
 
-func (f *entryForm) focus(index int) {
-	for i := range f.inputs {
-		f.inputs[i].Blur()
+func (f *entryForm) nextField()     { f.focus((f.focused + 1) % len(f.inputs)) }
+func (f *entryForm) previousField() { f.focus((f.focused - 1 + len(f.inputs)) % len(f.inputs)) }
+
+func (f *entryForm) focus(i int) {
+	for j := range f.inputs {
+		f.inputs[j].Blur()
 	}
-	f.focused = index
-	_ = f.inputs[index].Focus()
+	f.focused = i
+	f.inputs[i].Focus()
 }
+
+func (f *entryForm) build() (Anime, error) {
+	progress, err := parseInt(f.inputs[fProgress].Value())
+	if err != nil {
+		return Anime{}, fmt.Errorf("progress must be a number")
+	}
+	rating, err := parseFloat32(f.inputs[fRating].Value())
+	if err != nil {
+		return Anime{}, fmt.Errorf("rating must be a number")
+	}
+	return Anime{
+		ID:       f.id,
+		Title:    strings.TrimSpace(f.inputs[fTitle].Value()),
+		Progress: progress,
+		Rating:   rating,
+		Notes:    strings.TrimSpace(f.inputs[fNotes].Value()),
+		Watches:  []WatchRecord{{Status: f.status}},
+	}, nil
+}
+
+// ── Status cycling in form ────────────────────────────────────────────────────
+
+// The form now handles left/right for status inline (no popup in form mode).
+// We wire those keys in updateForm via the existing left/right case:
+// (already done above — f.status.Next() / Prev())
 
 func (f *entryForm) nextStatus() {
 	f.status = f.status.Next()
 }
 
 func (f *entryForm) previousStatus() {
-	statuses := StatusList()
-	index := slicesIndexStatus(statuses, f.status)
-	if index == -1 {
-		f.status = statuses[0]
-		return
-	}
-	index--
-	if index < 0 {
-		index = len(statuses) - 1
-	}
-	f.status = statuses[index]
-}
-
-func (f entryForm) entry() (Anime, error) {
-	progress, err := parseInt(f.inputs[formProgress].Value())
-	if err != nil {
-		return Anime{}, fmt.Errorf("progress must be a number")
-	}
-	score, err := parseFloat32(f.inputs[formScore].Value())
-	if err != nil {
-		return Anime{}, fmt.Errorf("score must be a number")
-	}
-	return Anime{
-		ID:         f.id,
-		Status:     f.status,
-		Title:      f.inputs[formTitle].Value(),
-		Progress:   progress,
-		LocalScore: score,
-		Notes:      f.inputs[formNotes].Value(),
-	}, nil
-}
-
-func slicesIndexStatus(statuses []Status, status Status) int {
-	for i, candidate := range statuses {
-		if candidate == status {
-			return i
+	list := StatusList()
+	idx := -1
+	for i, s := range list {
+		if s == f.status {
+			idx = i
+			break
 		}
 	}
-	return -1
+	if idx == -1 {
+		f.status = list[0]
+		return
+	}
+	f.status = list[(idx-1+len(list))%len(list)]
+}
+
+// ── Formatting helpers ────────────────────────────────────────────────────────
+
+func fmtProgress(v int) string {
+	if v == 0 {
+		return "·"
+	}
+	return strconv.Itoa(v)
+}
+
+func fmtRating(v float32) string {
+	if v == 0 {
+		return "·"
+	}
+	return strconv.FormatFloat(float64(v), 'f', -1, 32)
+}
+
+func fmtRatingRaw(v float32) string {
+	if v == 0 {
+		return ""
+	}
+	return strconv.FormatFloat(float64(v), 'f', -1, 32)
+}
+
+func fmtDate(t interface{ IsZero() bool }) string {
+	type hasFormat interface {
+		Format(string) string
+	}
+	if t.IsZero() {
+		return "·"
+	}
+	if f, ok := t.(hasFormat); ok {
+		return f.Format("2006-01-02")
+	}
+	return "·"
+}
+
+func fmtRewatch(n int) string {
+	if n == 0 {
+		return "·"
+	}
+	return strconv.Itoa(n)
+}
+
+func fmtInt(v int) string {
+	if v == 0 {
+		return ""
+	}
+	return strconv.Itoa(v)
+}
+
+func parseInt(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int(f), nil
+}
+
+func parseFloat32(s string) (float32, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	f, err := strconv.ParseFloat(s, 32)
+	if err != nil {
+		return 0, err
+	}
+	return float32(f), nil
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

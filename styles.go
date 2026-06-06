@@ -6,135 +6,154 @@ import (
 	"github.com/evertras/bubble-table/table"
 )
 
-// Border definition
+// ── Catppuccin palette ────────────────────────────────────────────────────────
+
+func cc(light, dark string) compat.AdaptiveColor {
+	return compat.AdaptiveColor{Light: lipgloss.Color(light), Dark: lipgloss.Color(dark)}
+}
+
+// Mocha / Latte pairs
 var (
-	customBorder = table.Border{
-		Top:    "─",
-		Left:   "│",
-		Right:  "│",
-		Bottom: "─",
-
-		TopRight:    "╮",
-		TopLeft:     "╭",
-		BottomRight: "╯",
-		BottomLeft:  "╰",
-
-		TopJunction:    "┬",
-		LeftJunction:   "├",
-		RightJunction:  "┤",
-		BottomJunction: "┴",
-		InnerJunction:  "┼",
-
-		InnerDivider: "│",
-	}
+	colMauve  = cc("#8839ef", "#cba6f7")
+	colGreen  = cc("#40a02b", "#a6e3a1")
+	colBlue   = cc("#1e66f5", "#89b4fa")
+	colPeach  = cc("#fe640b", "#fab387")
+	colText   = cc("#4c4f69", "#cdd6f4")
+	colSubtle = cc("#6c6f85", "#9399b2")
+	colMantle = cc("#e6e9ef", "#181825")
+	colCrust  = cc("#dce0e8", "#11111b")
+	colRed    = cc("#d20f39", "#f38ba8")
+	colYellow = cc("#df8e1d", "#f9e2af")
+	colTeal   = cc("#179299", "#94e2d5")
 )
 
-var (
-	catppuccinLatte = map[string]string{
-		"idColumnStyle":      "#8839ef", // mauve
-		"imageColumnStyle":   "#8839ef", // mauve
-		"headerStyle":        "#40a02b", // green
-		"footerBoxNameStyle": "#e64553", // maroon
-		"baseStyleBorderFg":  "#181825", // mantle (mocha)
-		"baseStyleFg":        "#4c4f69", // text
-		"highlightStyleBg":   "#6c6f85", // subtext0
-		"highlightStyleFg":   "#e6e9ef", // mantle
-		"titleStyleFg":       "#1e66f5", // blue
-		"subtleStyleFg":      "#fe640b", // peach
-	}
-
-	catppuccinMocha = map[string]string{
-		"idColumnStyle":      "#cba6f7", // mauve
-		"imageColumnStyle":   "#cba6f7", // mauve
-		"headerStyle":        "#a6e3a1", // green
-		"footerBoxNameStyle": "#eba0ac", // maroon
-		"baseStyleBorderFg":  "#313244", // mantle
-		"baseStyleFg":        "#cdd6f4", // text
-		"highlightStyleBg":   "#313244", // subtext0
-		"highlightStyleFg":   "#b4befe", // mantle
-		"titleStyleFg":       "#89b4fa", // blue
-		"subtleStyleFg":      "#fab387", // peach
-	}
-)
+// ── Shared styles ─────────────────────────────────────────────────────────────
 
 var (
-	idColumnStyle = lipgloss.NewStyle().
-			Faint(true).
-			Foreground(adaptiveColor(catppuccinLatte["idColumnStyle"], catppuccinMocha["idColumnStyle"]))
-
-	imageColumnStyle = lipgloss.NewStyle().
-				Foreground(adaptiveColor(catppuccinLatte["imageColumnStyle"], catppuccinMocha["imageColumnStyle"])).
-				Faint(true)
-
-	headerStyle = lipgloss.NewStyle().
-			Foreground(adaptiveColor(catppuccinLatte["headerStyle"], catppuccinMocha["headerStyle"])).
-			Bold(true)
-
-	footerStyle = lipgloss.NewStyle()
-
-	footerBoxNameStyle = lipgloss.NewStyle().
-				Foreground(adaptiveColor(catppuccinLatte["footerBoxNameStyle"], catppuccinMocha["footerBoxNameStyle"])).
-				Bold(true)
-
-	baseStyle = lipgloss.NewStyle().
-			BorderForeground(adaptiveColor(catppuccinLatte["baseStyleBorderFg"], catppuccinMocha["baseStyleBorderFg"])).
-			Foreground(adaptiveColor(catppuccinLatte["baseStyleFg"], catppuccinMocha["baseStyleFg"])).
-			Align(lipgloss.Left)
-
-	highlightStyle = lipgloss.NewStyle().
-			Background(adaptiveColor(catppuccinLatte["highlightStyleBg"], catppuccinMocha["highlightStyleBg"])).
-			Foreground(adaptiveColor(catppuccinLatte["highlightStyleFg"], catppuccinMocha["highlightStyleFg"]))
-
 	titleStyle = lipgloss.NewStyle().
-			Foreground(adaptiveColor(catppuccinLatte["titleStyleFg"], catppuccinMocha["titleStyleFg"])).
-			Bold(true)
+			Bold(true).
+			Foreground(colBlue)
 
 	subtleStyle = lipgloss.NewStyle().
-			Foreground(adaptiveColor(catppuccinLatte["subtleStyleFg"], catppuccinMocha["subtleStyleFg"]))
+			Foreground(colPeach)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(adaptiveColor("#6c6f85", "#9399b2"))
+			Foreground(colSubtle)
 
 	errorStyle = lipgloss.NewStyle().
-			Foreground(adaptiveColor("#d20f39", "#f38ba8")).
+			Bold(true).
+			Foreground(colRed)
+
+	// table
+	baseStyle = lipgloss.NewStyle().
+			Foreground(colText).
+			Align(lipgloss.Left)
+
+	headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colGreen)
+
+	highlightStyle = lipgloss.NewStyle().
+			Background(colMantle).
+			Foreground(colBlue).
 			Bold(true)
 
+	// form
 	formBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(adaptiveColor(catppuccinLatte["baseStyleBorderFg"], catppuccinMocha["baseStyleBorderFg"])).
+			BorderForeground(colSubtle).
 			Padding(1, 2)
 
 	formTitleStyle = lipgloss.NewStyle().
-			Foreground(adaptiveColor(catppuccinLatte["titleStyleFg"], catppuccinMocha["titleStyleFg"])).
-			Bold(true)
+			Bold(true).
+			Foreground(colBlue)
 
 	formLabelStyle = lipgloss.NewStyle().
-			Foreground(adaptiveColor(catppuccinLatte["headerStyle"], catppuccinMocha["headerStyle"])).
-			Width(10)
+			Foreground(colGreen).
+			Width(12)
 
 	formValueStyle = lipgloss.NewStyle().
-			Foreground(adaptiveColor(catppuccinLatte["subtleStyleFg"], catppuccinMocha["subtleStyleFg"])).
-			Bold(true)
+			Bold(true).
+			Foreground(colPeach)
+
+	// status badge colours
+	statusWatchingStyle   = lipgloss.NewStyle().Bold(true).Foreground(colBlue)
+	statusCompletedStyle  = lipgloss.NewStyle().Bold(true).Foreground(colGreen)
+	statusPlanStyle       = lipgloss.NewStyle().Foreground(colSubtle)
+	statusPausedStyle     = lipgloss.NewStyle().Foreground(colYellow)
+	statusDroppedStyle    = lipgloss.NewStyle().Foreground(colRed)
+	statusRewatchingStyle = lipgloss.NewStyle().Bold(true).Foreground(colTeal)
 )
 
-func adaptiveColor(light, dark string) compat.AdaptiveColor {
-	return compat.AdaptiveColor{
-		Light: lipgloss.Color(light),
-		Dark:  lipgloss.Color(dark),
+func styledStatus(s Status) string {
+	label := s.Symbol() + " " + s.String()
+	switch s {
+	case StatusWatching:
+		return statusWatchingStyle.Render(label)
+	case StatusCompleted:
+		return statusCompletedStyle.Render(label)
+	case StatusPlanToWatch:
+		return statusPlanStyle.Render(label)
+	case StatusPaused:
+		return statusPausedStyle.Render(label)
+	case StatusDropped:
+		return statusDroppedStyle.Render(label)
+	case StatusRewatching:
+		return statusRewatchingStyle.Render(label)
+	default:
+		return label
 	}
 }
 
-func animeColumns() []table.Column {
-	centered := lipgloss.NewStyle().Align(lipgloss.Center)
-	return []table.Column{
-		table.NewColumn(columnKeyStatus, "Status", 18).WithStyle(centered),
-		table.NewFlexColumn(columnKeyTitle, "Title", 2),
-		table.NewColumn(columnKeyProgress, "Progress", 8).WithStyle(centered),
-		table.NewColumn(columnKeyLocalScore, "Score", 7).WithStyle(centered),
-		table.NewColumn(columnKeyStartDate, "Started", 10).WithStyle(centered),
-		table.NewColumn(columnKeyFinishDate, "Finished", 10).WithStyle(centered),
-		table.NewColumn(columnKeyLastWatchDate, "Last Watched", 12).WithStyle(centered),
-		table.NewColumn(columnKeyTotalRewatch, "Rewatched", 10).WithStyle(centered),
-		table.NewFlexColumn(columnKeyNotes, "Notes", 1),
+// ── Table border ──────────────────────────────────────────────────────────────
+
+var customBorder = table.Border{
+	Top: "─", Left: "│", Right: "│", Bottom: "─",
+	TopRight: "╮", TopLeft: "╭", BottomRight: "╯", BottomLeft: "╰",
+	TopJunction: "┬", LeftJunction: "├", RightJunction: "┤", BottomJunction: "┴",
+	InnerJunction: "┼", InnerDivider: "│",
+}
+
+// ── Column definitions ────────────────────────────────────────────────────────
+
+const (
+	colKeyStatus    = "status"
+	colKeyTitle     = "title"
+	colKeyProgress  = "progress"
+	colKeyRating    = "rating"
+	colKeyStartDate = "start"
+	colKeyEndDate   = "end"
+	colKeyRewatch   = "rewatch"
+	colKeyNotes     = "notes"
+)
+
+// animeColumns returns columns scaled to the available width.
+// widths are approximate character counts; flex columns share remaining space.
+func animeColumns(availWidth int) []table.Column {
+	center := lipgloss.NewStyle().Align(lipgloss.Center)
+	right := lipgloss.NewStyle().Align(lipgloss.Right)
+
+	// Compact view for narrow terminals
+	if availWidth < 120 {
+		return []table.Column{
+			table.NewColumn(colKeyStatus, "Status", 14).WithStyle(center),
+			table.NewFlexColumn(colKeyTitle, "Title", 3),
+			table.NewColumn(colKeyProgress, "Ep", 4).WithStyle(right),
+			table.NewColumn(colKeyRating, "★", 5).WithStyle(center),
+		}
 	}
+
+	cols := []table.Column{
+		table.NewColumn(colKeyStatus, "Status", 18).WithStyle(center),
+		table.NewFlexColumn(colKeyTitle, "Title", 3),
+		table.NewColumn(colKeyProgress, "Ep", 4).WithStyle(right),
+		table.NewColumn(colKeyRating, "★", 5).WithStyle(center),
+		table.NewColumn(colKeyStartDate, "Started", 10).WithStyle(center),
+		table.NewColumn(colKeyEndDate, "Finished", 10).WithStyle(center),
+		table.NewColumn(colKeyRewatch, "↺", 3).WithStyle(center),
+	}
+	if availWidth >= 160 {
+		cols = append(cols, table.NewFlexColumn(colKeyNotes, "Notes", 1))
+	}
+	return cols
 }

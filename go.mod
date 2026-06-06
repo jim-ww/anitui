@@ -6,8 +6,8 @@ require (
 	charm.land/bubbles/v2 v2.1.0
 	charm.land/bubbletea/v2 v2.0.7
 	charm.land/lipgloss/v2 v2.0.3
+	github.com/BurntSushi/toml v1.6.0
 	github.com/evertras/bubble-table v0.22.3
-	github.com/jszwec/csvutil v1.10.0
 )
 
 require (
