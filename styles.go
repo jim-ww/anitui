@@ -91,11 +91,50 @@ var (
 
 	subtleStyle = lipgloss.NewStyle().
 			Foreground(adaptiveColor(catppuccinLatte["subtleStyleFg"], catppuccinMocha["subtleStyleFg"]))
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(adaptiveColor("#6c6f85", "#9399b2"))
+
+	errorStyle = lipgloss.NewStyle().
+			Foreground(adaptiveColor("#d20f39", "#f38ba8")).
+			Bold(true)
+
+	formBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(adaptiveColor(catppuccinLatte["baseStyleBorderFg"], catppuccinMocha["baseStyleBorderFg"])).
+			Padding(1, 2)
+
+	formTitleStyle = lipgloss.NewStyle().
+			Foreground(adaptiveColor(catppuccinLatte["titleStyleFg"], catppuccinMocha["titleStyleFg"])).
+			Bold(true)
+
+	formLabelStyle = lipgloss.NewStyle().
+			Foreground(adaptiveColor(catppuccinLatte["headerStyle"], catppuccinMocha["headerStyle"])).
+			Width(10)
+
+	formValueStyle = lipgloss.NewStyle().
+			Foreground(adaptiveColor(catppuccinLatte["subtleStyleFg"], catppuccinMocha["subtleStyleFg"])).
+			Bold(true)
 )
 
 func adaptiveColor(light, dark string) compat.AdaptiveColor {
 	return compat.AdaptiveColor{
 		Light: lipgloss.Color(light),
 		Dark:  lipgloss.Color(dark),
+	}
+}
+
+func animeColumns() []table.Column {
+	centered := lipgloss.NewStyle().Align(lipgloss.Center)
+	return []table.Column{
+		table.NewColumn(columnKeyStatus, "Status", 18).WithStyle(centered),
+		table.NewFlexColumn(columnKeyTitle, "Title", 2),
+		table.NewColumn(columnKeyProgress, "Progress", 8).WithStyle(centered),
+		table.NewColumn(columnKeyLocalScore, "Score", 7).WithStyle(centered),
+		table.NewColumn(columnKeyStartDate, "Started", 10).WithStyle(centered),
+		table.NewColumn(columnKeyFinishDate, "Finished", 10).WithStyle(centered),
+		table.NewColumn(columnKeyLastWatchDate, "Last Watched", 12).WithStyle(centered),
+		table.NewColumn(columnKeyTotalRewatch, "Rewatched", 10).WithStyle(centered),
+		table.NewFlexColumn(columnKeyNotes, "Notes", 1),
 	}
 }

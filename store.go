@@ -1,23 +1,28 @@
 package main
 
 import (
-	"bufio"
 	"crypto/rand"
 	"encoding/csv"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
-
-	"github.com/jszwec/csvutil"
 )
 
-var ErrAnimeTitleNotFound = errors.New("anime title not found")
+const appName = "anitui"
+
+var (
+	errAnimeNotFound = errors.New("anime not found")
+	errEmptyTitle    = errors.New("title cannot be empty")
+)
 
 type Status string
 
@@ -31,218 +36,624 @@ const (
 )
 
 func StatusList() []Status {
-	return []Status{StatusCompleted, StatusWatching, StatusPlanToWatch, StatusDropped, StatusRewatching, StatusPaused}
+	return []Status{
+		StatusWatching,
+		StatusCompleted,
+		StatusPlanToWatch,
+		StatusPaused,
+		StatusDropped,
+		StatusRewatching,
+	}
+}
+
+func (s Status) String() string {
+	if s == "" {
+		return string(StatusPlanToWatch)
+	}
+	return string(s)
+}
+
+func (s Status) Symbol() string {
+	switch s {
+	case StatusCompleted:
+		return "*"
+	case StatusWatching:
+		return ">"
+	case StatusPlanToWatch:
+		return " "
+	case StatusDropped:
+		return "x"
+	case StatusPaused:
+		return "!"
+	case StatusRewatching:
+		return "r"
+	default:
+		return "?"
+	}
+}
+
+func (s Status) Next() Status {
+	statuses := StatusList()
+	idx := slices.Index(statuses, s)
+	if idx == -1 {
+		return statuses[0]
+	}
+	return statuses[(idx+1)%len(statuses)]
+}
+
+func ParseStatus(value string) Status {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "completed", "complete", "done", "watched", "*":
+		return StatusCompleted
+	case "watching", "current", "in progress", ">":
+		return StatusWatching
+	case "plan to watch", "planned", "plan", "ptw", "todo", "":
+		return StatusPlanToWatch
+	case "dropped", "drop", "x":
+		return StatusDropped
+	case "paused", "on hold", "hold", "!":
+		return StatusPaused
+	case "rewatching", "rewatch", "r":
+		return StatusRewatching
+	default:
+		return StatusPlanToWatch
+	}
 }
 
 type Anime struct {
-	id            string
-	Status        Status    `csv:"status"` // current status of anime
-	Title         string    `csv:"title"`
-	Progress      int       `csv:"progress,omitempty"`        // represents how many episodes user has already finished
-	LocalScore    float32   `csv:"score,omitempty"`           // user-defined local-only score. ex. 0.0 - 10.0
-	StartDate     time.Time `csv:"start_date,omitempty"`      // first time user started watching specific anime. ex. 2006.01.02
-	FinishDate    time.Time `csv:"finish_date,omitempty"`     // date and time when user had finished watching anime
-	LastWatchDate time.Time `csv:"last_watch_date,omitempty"` // last time user watched this anime
-	TotalRewatch  int       `csv:"total_rewatch"`             // number of times user has rewatched this anime
-	Notes         string    `csv:"notes"`                     // optional user notes
+	ID            string
+	Status        Status
+	Title         string
+	Progress      int
+	LocalScore    float32
+	StartDate     time.Time
+	FinishDate    time.Time
+	LastWatchDate time.Time
+	TotalRewatch  int
+	Notes         string
+}
+
+func (a Anime) CloneWithDefaults() Anime {
+	a.Title = strings.TrimSpace(a.Title)
+	a.Status = ParseStatus(a.Status.String())
+	if a.ID == "" {
+		a.ID = newID()
+	}
+	if a.Progress < 0 {
+		a.Progress = 0
+	}
+	if a.LocalScore < 0 {
+		a.LocalScore = 0
+	}
+	if a.LocalScore > 10 {
+		a.LocalScore = 10
+	}
+	if a.TotalRewatch < 0 {
+		a.TotalRewatch = 0
+	}
+	return a
 }
 
 type Store struct {
-	entries []Anime
-	file    *os.File
-	encoder *csvutil.Encoder
+	path          string
+	entries       []Anime
+	legacySource  bool
+	backupCreated bool
 }
 
-func NewStore() (*Store, error) {
-	dataPath, err := AppDataFile("anitui", "animelist.csv")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get data path: %w", err)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dataPath), 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create directories: %w", err)
-	}
-
-	file, err := os.OpenFile(dataPath, os.O_RDWR|os.O_CREATE, 0o644)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: path=%s err=%w", dataPath, err)
-	}
-
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get file info: path=%s err=%w", dataPath, err)
-	}
-
-	var entries []Anime
-	if fileInfo.Size() != 0 && !HasOnlyOneLine(file) {
-		_, err = file.Seek(0, io.SeekStart)
+func NewStore(path string) (*Store, error) {
+	if path == "" {
+		var err error
+		path, err = AppDataFile(appName, "anime-progress.csv")
 		if err != nil {
 			return nil, err
 		}
-		decoder, err := csvutil.NewDecoder(csv.NewReader(file))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create csv decoder: err=%w", err)
-		}
-		decoder.WithUnmarshalers(csvutil.UnmarshalFunc(func(data []byte, t *time.Time) error {
-			tt, err := time.Parse(*timeFormat, string(data))
-			if err == nil {
-				*t = tt
-			}
-			return err
-		}))
-
-		if err := decoder.Decode(&entries); err != nil {
-			return nil, fmt.Errorf("failed to read watch history: %w", err)
-		}
-		for i := range entries {
-			entries[i].id = rand.Text()[:10]
-		}
 	}
 
-	encoder := csvutil.NewEncoder(csv.NewWriter(file))
-	encoder.WithMarshalers(csvutil.MarshalFunc(func(t time.Time) ([]byte, error) {
-		return t.AppendFormat(nil, *timeFormat), nil
-	}))
-
-	store := &Store{
-		file:    file,
-		encoder: encoder,
-		entries: entries,
+	store := &Store{path: path}
+	if err := store.Load(); err != nil {
+		return nil, err
 	}
-
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if err := store.Save(); err != nil {
+			return nil, err
+		}
+	}
 	return store, nil
 }
 
-func (s *Store) GetEntries() []Anime {
-	return s.entries
+func (s *Store) Path() string {
+	return s.path
 }
 
-func (s *Store) FindTitleByID(id string) (Anime, error) {
-	idx := slices.IndexFunc(s.entries, func(a Anime) bool { return a.id == id })
-	if idx == -1 {
-		return Anime{}, ErrAnimeTitleNotFound
-	}
-	return s.entries[idx], nil
+func (s *Store) Entries() []Anime {
+	entries := make([]Anime, len(s.entries))
+	copy(entries, s.entries)
+	return entries
 }
 
-func (s *Store) FindAllMatchingByTitle(title string) (map[int]Anime, error) {
-	matching := map[int]Anime{}
+func (s *Store) Load() error {
+	file, err := os.Open(s.path)
+	if errors.Is(err, os.ErrNotExist) {
+		s.entries = nil
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open anime CSV: %w", err)
+	}
+	defer file.Close()
 
-	for id, anime := range s.entries {
-		if strings.HasPrefix(anime.Title, title) {
-			matching[id] = anime
-		}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return fmt.Errorf("read anime CSV: %w", err)
+	}
+	if strings.TrimSpace(string(content)) == "" {
+		s.entries = nil
+		return nil
 	}
 
-	if len(matching) == 0 {
-		return nil, ErrAnimeTitleNotFound
+	entries, structured, err := parseAnimeFile(content)
+	if err != nil {
+		return err
 	}
-
-	return matching, nil
+	s.entries = entries
+	s.legacySource = !structured
+	return nil
 }
 
-func (s *Store) UpdateEntryByID(id string, updated Anime) (Anime, error) {
-	idx := slices.IndexFunc(s.entries, func(a Anime) bool { return a.id == id })
-	if idx == -1 {
-		return Anime{}, ErrAnimeTitleNotFound
+func (s *Store) Add(entry Anime) (Anime, error) {
+	entry = entry.CloneWithDefaults()
+	if entry.Title == "" {
+		return Anime{}, errEmptyTitle
 	}
-	s.entries[idx] = updated
-
-	if err := s.WriteChangesToDisk(); err != nil {
+	s.entries = append(s.entries, entry)
+	if err := s.Save(); err != nil {
 		return Anime{}, err
 	}
+	return entry, nil
+}
 
+func (s *Store) Update(id string, updated Anime) (Anime, error) {
+	idx := s.indexByID(id)
+	if idx == -1 {
+		return Anime{}, errAnimeNotFound
+	}
+	updated = updated.CloneWithDefaults()
+	updated.ID = id
+	if updated.Title == "" {
+		return Anime{}, errEmptyTitle
+	}
+	s.entries[idx] = updated
+	if err := s.Save(); err != nil {
+		return Anime{}, err
+	}
 	return updated, nil
 }
 
-func (s *Store) DeleteEntryByID(id string) error {
-	idx := slices.IndexFunc(s.entries, func(a Anime) bool { return a.id == id })
+func (s *Store) Delete(id string) error {
+	idx := s.indexByID(id)
 	if idx == -1 {
-		return ErrAnimeTitleNotFound
+		return errAnimeNotFound
 	}
 	s.entries = slices.Delete(s.entries, idx, idx+1)
-
-	return s.WriteChangesToDisk()
+	return s.Save()
 }
 
-func (s *Store) WriteChangesToDisk() error {
-	if err := s.file.Truncate(0); err != nil {
-		return err
+func (s *Store) EntryByIndex(index int) (Anime, bool) {
+	if index < 0 || index >= len(s.entries) {
+		return Anime{}, false
 	}
-	if _, err := s.file.Seek(0, 0); err != nil {
-		return err
-	}
+	return s.entries[index], true
+}
 
-	// if there is no header, add it
-	if info, _ := s.file.Stat(); info.Size() == 0 {
-		header, err := csvutil.Header(Anime{}, "")
-		if err != nil {
-			return err
+func (s *Store) EntryByID(id string) (Anime, bool) {
+	idx := s.indexByID(id)
+	if idx == -1 {
+		return Anime{}, false
+	}
+	return s.entries[idx], true
+}
+
+func (s *Store) CycleStatus(id string) (Anime, error) {
+	entry, ok := s.EntryByID(id)
+	if !ok {
+		return Anime{}, errAnimeNotFound
+	}
+	entry.Status = entry.Status.Next()
+	if entry.Status == StatusWatching && entry.StartDate.IsZero() {
+		entry.StartDate = time.Now()
+	}
+	if entry.Status == StatusCompleted && entry.FinishDate.IsZero() {
+		entry.FinishDate = time.Now()
+	}
+	return s.Update(id, entry)
+}
+
+func (s *Store) AdjustProgress(id string, delta int) (Anime, error) {
+	entry, ok := s.EntryByID(id)
+	if !ok {
+		return Anime{}, errAnimeNotFound
+	}
+	entry.Progress += delta
+	if entry.Progress < 0 {
+		entry.Progress = 0
+	}
+	entry.LastWatchDate = time.Now()
+	if entry.Status == StatusPlanToWatch {
+		entry.Status = StatusWatching
+	}
+	return s.Update(id, entry)
+}
+
+func (s *Store) Save() error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return fmt.Errorf("create data directory: %w", err)
+	}
+	if s.legacySource && !s.backupCreated {
+		if err := copyFile(s.path, s.path+".legacy.bak"); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("backup legacy file: %w", err)
 		}
+		s.backupCreated = true
+	}
 
-		if _, err := s.file.WriteString(strings.Join(header, ",")); err != nil {
-			return fmt.Errorf("failed to write header: %w", err)
+	temp, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp CSV: %w", err)
+	}
+	tempName := temp.Name()
+	removeTemp := true
+	defer func() {
+		if removeTemp {
+			_ = os.Remove(tempName)
+		}
+	}()
+
+	writer := csv.NewWriter(temp)
+	if err := writer.Write(animeCSVHeader); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("write CSV header: %w", err)
+	}
+	for _, entry := range s.entries {
+		if err := writer.Write(animeToRecord(entry.CloneWithDefaults())); err != nil {
+			_ = temp.Close()
+			return fmt.Errorf("write CSV entry: %w", err)
 		}
 	}
-
-	if err := s.encoder.Encode(s.entries); err != nil {
-		return fmt.Errorf("failed to marshal csv entries: %w", err)
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("flush CSV: %w", err)
 	}
-
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("close temp CSV: %w", err)
+	}
+	if err := os.Rename(tempName, s.path); err != nil {
+		return fmt.Errorf("replace CSV: %w", err)
+	}
+	removeTemp = false
+	s.legacySource = false
 	return nil
 }
 
 func (s *Store) Close() error {
-	return s.file.Close()
+	return nil
 }
 
-func HasOnlyOneLine(r io.Reader) bool {
-	scanner := bufio.NewScanner(r)
-	count := 0
+func (s *Store) indexByID(id string) int {
+	return slices.IndexFunc(s.entries, func(entry Anime) bool {
+		return entry.ID == id
+	})
+}
 
-	for scanner.Scan() {
-		count++
-		if count > 1 {
+var animeCSVHeader = []string{
+	"id",
+	"status",
+	"title",
+	"progress",
+	"score",
+	"start_date",
+	"finish_date",
+	"last_watch_date",
+	"total_rewatch",
+	"notes",
+}
+
+func parseAnimeFile(content []byte) ([]Anime, bool, error) {
+	reader := csv.NewReader(strings.NewReader(string(content)))
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
+
+	records, err := reader.ReadAll()
+	if err == nil && hasStructuredHeader(records) {
+		entries, err := parseStructuredRecords(records)
+		return entries, true, err
+	}
+
+	entries, err := parseLegacyProgress(string(content))
+	return entries, false, err
+}
+
+func hasStructuredHeader(records [][]string) bool {
+	if len(records) == 0 || len(records[0]) == 0 {
+		return false
+	}
+	headers := headerIndex(records[0])
+	_, hasTitle := headers["title"]
+	_, hasStatus := headers["status"]
+	return hasTitle && hasStatus
+}
+
+func parseStructuredRecords(records [][]string) ([]Anime, error) {
+	headers := headerIndex(records[0])
+	entries := make([]Anime, 0, len(records)-1)
+	for line, record := range records[1:] {
+		if isEmptyRecord(record) {
+			continue
+		}
+		entry, err := recordToAnime(headers, record)
+		if err != nil {
+			return nil, fmt.Errorf("parse CSV line %d: %w", line+2, err)
+		}
+		if entry.Title == "" {
+			continue
+		}
+		entries = append(entries, entry.CloneWithDefaults())
+	}
+	return entries, nil
+}
+
+func headerIndex(record []string) map[string]int {
+	headers := make(map[string]int, len(record))
+	for i, header := range record {
+		headers[strings.ToLower(strings.TrimSpace(header))] = i
+	}
+	return headers
+}
+
+func isEmptyRecord(record []string) bool {
+	for _, field := range record {
+		if strings.TrimSpace(field) != "" {
 			return false
 		}
 	}
-
-	return count == 1
+	return true
 }
 
-// AppDataDir returns the base directory where the application should store
-// its user-specific data files (state).
-//
-// Follows XDG Base Directory Specification on Unix-like systems (Linux/BSD),
-// and uses native conventions on macOS and Windows.
-//
-// Examples:
-//
-//	Linux:   $XDG_DATA_HOME/app-name or ~/.local/share/app-name
-//	macOS:   ~/Library/Application Support/AppName
-//	Windows: %APPDATA%\AppName
+func recordToAnime(headers map[string]int, record []string) (Anime, error) {
+	var entry Anime
+	var err error
+	entry.ID = field(headers, record, "id")
+	entry.Status = ParseStatus(field(headers, record, "status"))
+	entry.Title = field(headers, record, "title")
+	entry.Progress, err = parseInt(field(headers, record, "progress"))
+	if err != nil {
+		return Anime{}, fmt.Errorf("progress: %w", err)
+	}
+	entry.LocalScore, err = parseFloat32(field(headers, record, "score"))
+	if err != nil {
+		return Anime{}, fmt.Errorf("score: %w", err)
+	}
+	entry.StartDate, err = parseDate(field(headers, record, "start_date"))
+	if err != nil {
+		return Anime{}, fmt.Errorf("start_date: %w", err)
+	}
+	entry.FinishDate, err = parseDate(field(headers, record, "finish_date"))
+	if err != nil {
+		return Anime{}, fmt.Errorf("finish_date: %w", err)
+	}
+	entry.LastWatchDate, err = parseDate(field(headers, record, "last_watch_date"))
+	if err != nil {
+		return Anime{}, fmt.Errorf("last_watch_date: %w", err)
+	}
+	entry.TotalRewatch, err = parseInt(field(headers, record, "total_rewatch"))
+	if err != nil {
+		return Anime{}, fmt.Errorf("total_rewatch: %w", err)
+	}
+	entry.Notes = field(headers, record, "notes")
+	return entry, nil
+}
+
+func animeToRecord(entry Anime) []string {
+	return []string{
+		entry.ID,
+		entry.Status.String(),
+		entry.Title,
+		formatInt(entry.Progress),
+		formatScore(entry.LocalScore),
+		formatDate(entry.StartDate),
+		formatDate(entry.FinishDate),
+		formatDate(entry.LastWatchDate),
+		formatInt(entry.TotalRewatch),
+		entry.Notes,
+	}
+}
+
+func field(headers map[string]int, record []string, name string) string {
+	index, ok := headers[name]
+	if !ok || index >= len(record) {
+		return ""
+	}
+	return strings.TrimSpace(record[index])
+}
+
+var legacyLinePattern = regexp.MustCompile(`^\s*(?:(\d+(?:\.\d+)?)\s+)?(?:\((.*?)\)\s*)?\[([^\]]*)\]\s*(?:\[(\d+(?:\.\d+)?)\]\s*)?(.*)$`)
+
+func parseLegacyProgress(content string) ([]Anime, error) {
+	lines := strings.Split(content, "\n")
+	entries := make([]Anime, 0, len(lines))
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		entry, err := parseLegacyLine(line)
+		if err != nil {
+			return nil, fmt.Errorf("parse legacy line %d: %w", i+1, err)
+		}
+		if entry.Title != "" {
+			entries = append(entries, entry.CloneWithDefaults())
+		}
+	}
+	return entries, nil
+}
+
+func parseLegacyLine(line string) (Anime, error) {
+	matches := legacyLinePattern.FindStringSubmatch(line)
+	if matches == nil {
+		return Anime{
+			ID:     newID(),
+			Status: StatusPlanToWatch,
+			Title:  strings.TrimSpace(line),
+		}, nil
+	}
+
+	score, err := parseFloat32(matches[1])
+	if err != nil {
+		return Anime{}, err
+	}
+	totalRewatch, err := parseInt(matches[4])
+	if err != nil {
+		return Anime{}, err
+	}
+	title, notes := splitLegacyTitleNotes(matches[5], matches[2])
+
+	return Anime{
+		ID:           newID(),
+		Status:       ParseStatus(matches[3]),
+		Title:        title,
+		LocalScore:   score,
+		TotalRewatch: totalRewatch,
+		Notes:        notes,
+	}, nil
+}
+
+func splitLegacyTitleNotes(value, prefixNote string) (string, string) {
+	value = strings.TrimSpace(value)
+	notes := strings.TrimSpace(prefixNote)
+	if strings.Contains(strings.ToUpper(value), "WAITING FOR RELEASE") {
+		value = strings.ReplaceAll(value, "WAITING FOR RELEASE", "")
+		notes = strings.TrimSpace(strings.Join(nonEmpty(notes, "waiting for release"), "; "))
+	}
+	return strings.TrimSpace(value), notes
+}
+
+func nonEmpty(values ...string) []string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			filtered = append(filtered, strings.TrimSpace(value))
+		}
+	}
+	return filtered
+}
+
+func parseInt(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	floatValue, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int(floatValue), nil
+}
+
+func parseFloat32(value string) (float32, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 32)
+	if err != nil {
+		return 0, err
+	}
+	return float32(parsed), nil
+}
+
+func parseDate(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	formats := []string{"2006-01-02", "02.01.2006", time.RFC3339}
+	for _, format := range formats {
+		parsed, err := time.Parse(format, value)
+		if err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported date %q", value)
+}
+
+func formatInt(value int) string {
+	if value == 0 {
+		return ""
+	}
+	return strconv.Itoa(value)
+}
+
+func formatScore(value float32) string {
+	if value == 0 {
+		return ""
+	}
+	return strconv.FormatFloat(float64(value), 'f', -1, 32)
+}
+
+func formatDate(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format("2006-01-02")
+}
+
+func newID() string {
+	bytes := make([]byte, 6)
+	if _, err := rand.Read(bytes); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(bytes)
+}
+
+func copyFile(src, dst string) error {
+	input, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+
+	output, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+
+	_, err = io.Copy(output, input)
+	return err
+}
+
 func AppDataDir(appName string) (string, error) {
 	if appName == "" {
 		return "", fmt.Errorf("application name cannot be empty")
 	}
 
 	var base string
-
 	switch runtime.GOOS {
 	case "windows":
 		base = os.Getenv("APPDATA")
 		if base == "" {
 			return "", fmt.Errorf("APPDATA environment variable is not set")
 		}
-
-	case "darwin": // macOS
+	case "darwin":
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", err
 		}
 		base = filepath.Join(home, "Library", "Application Support")
-
-	default: // Linux, BSD, etc.
+	default:
 		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
 			base = xdg
 		} else {
@@ -253,64 +664,13 @@ func AppDataDir(appName string) (string, error) {
 			base = filepath.Join(home, ".local", "share")
 		}
 	}
-
-	dir := filepath.Join(base, appName)
-	return dir, nil
+	return filepath.Join(base, appName), nil
 }
 
-// AppDataFile returns full path to a file inside the app data directory
 func AppDataFile(appName, filename string) (string, error) {
 	base, err := AppDataDir(appName)
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(base, filename), nil
-}
-
-// fuzzy matching w/ Levenshtein distance
-func levenshtein(a, b string) int {
-	a = strings.ToLower(a)
-	b = strings.ToLower(b)
-	ar, br := []rune(a), []rune(b)
-	alen, blen := len(ar), len(br)
-	if alen == 0 {
-		return blen
-	}
-	if blen == 0 {
-		return alen
-	}
-	matrix := make([][]int, alen+1)
-	for i := range matrix {
-		matrix[i] = make([]int, blen+1)
-	}
-	for i := 0; i <= alen; i++ {
-		matrix[i][0] = i
-	}
-	for j := 0; j <= blen; j++ {
-		matrix[0][j] = j
-	}
-	for i := 1; i <= alen; i++ {
-		for j := 1; j <= blen; j++ {
-			cost := 0
-			if ar[i-1] != br[j-1] {
-				cost = 1
-			}
-			matrix[i][j] = min3(
-				matrix[i-1][j]+1,
-				matrix[i][j-1]+1,
-				matrix[i-1][j-1]+cost,
-			)
-		}
-	}
-	return matrix[alen][blen]
-}
-
-func min3(a, b, c int) int {
-	if a < b && a < c {
-		return a
-	}
-	if b < c {
-		return b
-	}
-	return c
 }
