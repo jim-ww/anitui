@@ -61,7 +61,7 @@ func (s Status) Symbol() string {
 	case StatusDropped:
 		return "✗"
 	case StatusPaused:
-		return "⏸"
+		return "!"
 	case StatusRewatching:
 		return "↺"
 	default:

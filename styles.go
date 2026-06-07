@@ -77,38 +77,42 @@ var (
 			Foreground(colPeach)
 
 	// status badge colours
-	statusWatchingStyle   = lipgloss.NewStyle().Bold(true).Foreground(colBlue)
-	statusCompletedStyle  = lipgloss.NewStyle().Bold(true).Foreground(colGreen)
-	statusPlanStyle       = lipgloss.NewStyle().Foreground(colSubtle)
-	statusPausedStyle     = lipgloss.NewStyle().Foreground(colYellow)
-	statusDroppedStyle    = lipgloss.NewStyle().Foreground(colRed)
-	statusRewatchingStyle = lipgloss.NewStyle().Bold(true).Foreground(colTeal)
+	statusWatchingStyle    = lipgloss.NewStyle().Bold(true).Foreground(colBlue)
+	statusCompletedStyle   = lipgloss.NewStyle().Bold(true).Foreground(colGreen)
+	statusPlanStyle        = lipgloss.NewStyle().Foreground(colSubtle)
+	statusPausedStyle      = lipgloss.NewStyle().Foreground(colYellow)
+	statusDroppedStyle     = lipgloss.NewStyle().Foreground(colRed)
+	statusRewatchingStyle  = lipgloss.NewStyle().Bold(true).Foreground(colTeal)
 )
 
 func styledStatus(s Status) string {
 	label := s.Symbol() + " " + s.String()
+	return rowStyleForStatus(s).Render(label)
+}
+
+func rowStyleForStatus(s Status) lipgloss.Style {
 	switch s {
 	case StatusWatching:
-		return statusWatchingStyle.Render(label)
+		return statusWatchingStyle
 	case StatusCompleted:
-		return statusCompletedStyle.Render(label)
+		return statusCompletedStyle
 	case StatusPlanToWatch:
-		return statusPlanStyle.Render(label)
+		return statusPlanStyle
 	case StatusPaused:
-		return statusPausedStyle.Render(label)
+		return statusPausedStyle
 	case StatusDropped:
-		return statusDroppedStyle.Render(label)
+		return statusDroppedStyle
 	case StatusRewatching:
-		return statusRewatchingStyle.Render(label)
+		return statusRewatchingStyle
 	default:
-		return label
+		return lipgloss.NewStyle()
 	}
 }
 
 // ── Table border ──────────────────────────────────────────────────────────────
 
 var customBorder = table.Border{
-	Top: "─", Left: "│", Right: "│", Bottom: "─",
+	Top:    "─", Left: "│", Right: "│", Bottom: "─",
 	TopRight: "╮", TopLeft: "╭", BottomRight: "╯", BottomLeft: "╰",
 	TopJunction: "┬", LeftJunction: "├", RightJunction: "┤", BottomJunction: "┴",
 	InnerJunction: "┼", InnerDivider: "│",
@@ -131,7 +135,7 @@ const (
 // widths are approximate character counts; flex columns share remaining space.
 func animeColumns(availWidth int) []table.Column {
 	center := lipgloss.NewStyle().Align(lipgloss.Center)
-	right := lipgloss.NewStyle().Align(lipgloss.Right)
+	right  := lipgloss.NewStyle().Align(lipgloss.Right)
 
 	// Compact view for narrow terminals
 	if availWidth < 120 {

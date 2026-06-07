@@ -46,6 +46,38 @@ func main() {
 	}
 }
 
+// ── Keybindings ───────────────────────────────────────────────────────────────
+
+type keyMap struct {
+	Up            key.Binding
+	Down          key.Binding
+	Add           key.Binding
+	Edit          key.Binding
+	Delete        key.Binding
+	Status        key.Binding
+	ProgressUp    key.Binding
+	ProgressDown  key.Binding
+	Play          key.Binding
+	Confirm       key.Binding
+	Cancel        key.Binding
+	Quit          key.Binding
+}
+
+var keys = keyMap{
+	Up:           key.NewBinding(key.WithKeys("up", "k"),     key.WithHelp("↑/k", "up")),
+	Down:         key.NewBinding(key.WithKeys("down", "j"),   key.WithHelp("↓/j", "down")),
+	Add:          key.NewBinding(key.WithKeys("a"),           key.WithHelp("a", "add")),
+	Edit:         key.NewBinding(key.WithKeys("e"),           key.WithHelp("e", "edit")),
+	Delete:       key.NewBinding(key.WithKeys("d", "delete"), key.WithHelp("d", "delete")),
+	Status:       key.NewBinding(key.WithKeys(" "),           key.WithHelp("space", "status")),
+	ProgressUp:   key.NewBinding(key.WithKeys("+", "="),      key.WithHelp("+", "ep+")),
+	ProgressDown: key.NewBinding(key.WithKeys("-"),           key.WithHelp("-", "ep-")),
+	Play:         key.NewBinding(key.WithKeys("enter"),       key.WithHelp("enter", "play")),
+	Confirm:      key.NewBinding(key.WithKeys("y", "Y"),      key.WithHelp("y", "confirm")),
+	Cancel:       key.NewBinding(key.WithKeys("esc"),         key.WithHelp("esc", "cancel")),
+	Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+}
+
 // ── App modes ─────────────────────────────────────────────────────────────────
 
 type appMode int
@@ -55,6 +87,7 @@ const (
 	modeAdd
 	modeEdit
 	modeStatusSelect
+	modeConfirmDelete
 )
 
 // ── Model ─────────────────────────────────────────────────────────────────────
@@ -69,16 +102,13 @@ type model struct {
 	status  string
 	errText string
 
-	// status-select overlay
 	statusCursor int
 }
 
-var bindingQuit = key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit"))
-
 func newModel(store *Store) *model {
 	m := &model{
-		width:  120,
-		height: 30,
+		width:  80,
+		height: 24,
 		store:  store,
 		status: fmt.Sprintf("loaded %d entries · %s", len(store.Entries()), store.Path()),
 	}
@@ -107,6 +137,12 @@ func (m *model) View() tea.View {
 	case modeStatusSelect:
 		b.WriteString(m.statusSelectView())
 
+	case modeConfirmDelete:
+		b.WriteString(m.tbl.View())
+		b.WriteString("\n")
+		b.WriteString(errorStyle.Render("  delete? "))
+		b.WriteString(helpStyle.Render("y confirm  any other key cancel"))
+
 	default:
 		b.WriteString(m.tbl.View())
 		b.WriteString("\n")
@@ -122,7 +158,9 @@ func (m *model) View() tea.View {
 		b.WriteString(subtleStyle.Render("  " + m.status))
 	}
 
-	return tea.NewView(b.String())
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	return v
 }
 
 func (m *model) statusSelectView() string {
@@ -130,15 +168,14 @@ func (m *model) statusSelectView() string {
 	var b strings.Builder
 	b.WriteString(formTitleStyle.Render("  Select Status") + "\n\n")
 	for i, s := range list {
-		prefix := "   "
 		if i == m.statusCursor {
-			prefix = " ▸ "
+			b.WriteString(highlightStyle.Render(" ▸ "+s.Symbol()+" "+s.String()) + "\n")
+		} else {
+			b.WriteString("   " + styledStatus(s) + "\n")
 		}
-		line := prefix + styledStatus(s) + "\n"
-		b.WriteString(line)
 	}
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("  ↑/↓ move  enter confirm  esc cancel"))
+	b.WriteString(helpStyle.Render("  ↑/k ↓/j move  enter confirm  esc cancel"))
 	return b.String()
 }
 
@@ -150,85 +187,110 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateForm(msg)
 	case modeStatusSelect:
 		return m.updateStatusSelect(msg)
+	case modeConfirmDelete:
+		return m.updateConfirmDelete(msg)
 	}
 	return m.updateList(msg)
 }
 
 func (m *model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	m.tbl, cmd = m.tbl.Update(msg)
-
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.rebuildTable(m.highlightedIndex())
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+	// Handle our keys FIRST — bubble-table swallows space and enter.
+	if km, ok := msg.(tea.KeyPressMsg); ok {
+		switch {
+		case key.Matches(km, keys.Quit):
 			return m, tea.Quit
-		case "esc":
+		case key.Matches(km, keys.Cancel):
 			return m, tea.Quit
-		case "a":
+		case key.Matches(km, keys.Add):
 			m.startAdd()
-		case "e":
+			return m, nil
+		case key.Matches(km, keys.Edit):
 			m.startEdit()
-		case "d", "delete":
-			m.deleteSelected()
-		case " ":
+			return m, nil
+		case key.Matches(km, keys.Delete):
+			m.confirmDelete()
+			return m, nil
+		case key.Matches(km, keys.Status):
 			m.openStatusSelect()
-		case "+", "=":
+			return m, nil
+		case key.Matches(km, keys.ProgressUp):
 			m.adjustProgress(1)
-		case "-":
+			return m, nil
+		case key.Matches(km, keys.ProgressDown):
 			m.adjustProgress(-1)
-		case "enter":
+			return m, nil
+		case key.Matches(km, keys.Play):
 			m.playSelected()
+			return m, nil
 		}
 	}
+
+	if sizeMsg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = sizeMsg.Width
+		m.height = sizeMsg.Height
+		m.rebuildTable(m.highlightedIndex())
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.tbl, cmd = m.tbl.Update(msg)
 	return m, cmd
 }
 
 func (m *model) updateStatusSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 	list := StatusList()
-	if key, ok := msg.(tea.KeyMsg); ok {
-		switch key.String() {
-		case "ctrl+c":
+	if km, ok := msg.(tea.KeyPressMsg); ok {
+		switch {
+		case key.Matches(km, keys.Quit):
 			return m, tea.Quit
-		case "esc":
+		case key.Matches(km, keys.Cancel):
 			m.mode = modeList
 			m.status = "cancelled"
-		case "up", "k":
+		case key.Matches(km, keys.Up):
 			m.statusCursor = (m.statusCursor - 1 + len(list)) % len(list)
-		case "down", "j":
+		case key.Matches(km, keys.Down):
 			m.statusCursor = (m.statusCursor + 1) % len(list)
-		case "enter":
+		case key.Matches(km, keys.Play): // enter
 			m.applyStatusSelect(list[m.statusCursor])
 		}
 	}
 	return m, nil
 }
 
+func (m *model) updateConfirmDelete(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if km, ok := msg.(tea.KeyPressMsg); ok {
+		if key.Matches(km, keys.Confirm) {
+			m.doDelete()
+		} else {
+			m.mode = modeList
+			m.status = "cancelled"
+			m.errText = ""
+		}
+	}
+	return m, nil
+}
+
 func (m *model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
-		switch key.String() {
-		case "ctrl+c":
+	if km, ok := msg.(tea.KeyPressMsg); ok {
+		switch {
+		case key.Matches(km, keys.Quit):
 			return m, tea.Quit
-		case "esc":
+		case key.Matches(km, keys.Cancel):
 			m.cancelForm()
 			return m, nil
-		case "tab", "down":
+		case km.String() == "tab" || key.Matches(km, keys.Down):
 			m.form.nextField()
 			return m, nil
-		case "shift+tab", "up":
+		case km.String() == "shift+tab" || key.Matches(km, keys.Up):
 			m.form.previousField()
 			return m, nil
-		case "left":
+		case km.String() == "left":
 			m.form.previousStatus()
 			return m, nil
-		case "right":
+		case km.String() == "right":
 			m.form.nextStatus()
 			return m, nil
-		case "enter":
+		case key.Matches(km, keys.Play): // enter
 			m.saveForm()
 			return m, nil
 		}
@@ -242,7 +304,7 @@ func (m *model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// ── Table helpers ─────────────────────────────────────────────────────────────
+// ── Table ─────────────────────────────────────────────────────────────────────
 
 func (m *model) rebuildTable(highlighted int) {
 	entries := m.store.Entries()
@@ -254,7 +316,7 @@ func (m *model) rebuildTable(highlighted int) {
 	for _, e := range entries {
 		cw := e.CurrentWatch()
 		rows = append(rows, table.NewRow(table.RowData{
-			colKeyStatus:    styledStatus(e.Status()),
+			colKeyStatus:    e.Status().Symbol() + " " + e.Status().String(),
 			colKeyTitle:     e.Title,
 			colKeyProgress:  fmtProgress(e.Progress),
 			colKeyRating:    fmtRating(e.Rating),
@@ -262,16 +324,16 @@ func (m *model) rebuildTable(highlighted int) {
 			colKeyEndDate:   fmtDate(cw.EndDate),
 			colKeyRewatch:   fmtRewatch(e.TotalRewatch()),
 			colKeyNotes:     e.Notes,
-		}))
+		}).WithStyle(rowStyleForStatus(e.Status())))
 	}
 	m.tbl = table.New(cols).
 		WithRows(rows).
-		WithMaxTotalWidth(max(80, m.width-2)).
+		WithTargetWidth(m.width).
 		WithHorizontalFreezeColumnCount(2).
 		WithPageSize(max(3, m.height-6)).
 		Border(customBorder).
 		Focused(true).
-		WithAdditionalShortHelpKeys([]key.Binding{bindingQuit}).
+		WithAdditionalShortHelpKeys([]key.Binding{keys.Quit}).
 		WithBaseStyle(baseStyle).
 		HeaderStyle(headerStyle).
 		HighlightStyle(highlightStyle).
@@ -331,9 +393,7 @@ func (m *model) saveForm() {
 			m.errText = "entry no longer exists"
 			return
 		}
-		// preserve watch history
 		entry.Watches = existing.Watches
-		// update current watch status if changed
 		if len(entry.Watches) > 0 {
 			entry.Watches[len(entry.Watches)-1].Status = m.form.status
 		}
@@ -349,19 +409,34 @@ func (m *model) saveForm() {
 	m.rebuildTable(highlighted)
 }
 
-func (m *model) deleteSelected() {
+func (m *model) confirmDelete() {
 	entry, ok := m.selectedEntry()
 	if !ok {
 		m.errText = "nothing selected"
 		return
 	}
+	m.mode = modeConfirmDelete
+	m.status = fmt.Sprintf("delete %q?", entry.Title)
+	m.errText = ""
+}
+
+
+func (m *model) doDelete() {
+	entry, ok := m.selectedEntry()
+	if !ok {
+		m.errText = "nothing selected"
+		m.mode = modeList
+		return
+	}
 	highlighted := m.highlightedIndex()
 	if err := m.store.Delete(entry.ID); err != nil {
 		m.errText = err.Error()
+		m.mode = modeList
 		return
 	}
 	m.errText = ""
 	m.status = fmt.Sprintf("deleted %q", entry.Title)
+	m.mode = modeList
 	m.rebuildTable(highlighted)
 }
 
@@ -463,8 +538,7 @@ func newEntryForm(e Anime) entryForm {
 		makeInput("rating 0-10", fmtRatingRaw(e.Rating), 6),
 		makeInput("notes", e.Notes, 80),
 	}
-	status := e.Status()
-	f := entryForm{id: e.ID, status: status, inputs: inputs}
+	f := entryForm{id: e.ID, status: e.Status(), inputs: inputs}
 	f.focus(0)
 	return f
 }
@@ -487,13 +561,13 @@ func (f *entryForm) View() string {
 
 	labels := []string{"Title", "Progress", "Rating", "Notes"}
 	for i, inp := range f.inputs {
-		active := ""
+		cursor := "  "
 		if i == f.focused {
-			active = " ◀"
+			cursor = " ▸"
 		}
 		b.WriteString(formLabelStyle.Render(labels[i]))
 		b.WriteString(inp.View())
-		b.WriteString(active + "\n")
+		b.WriteString(cursor + "\n")
 	}
 
 	b.WriteString("\n")
@@ -517,6 +591,18 @@ func (f *entryForm) focus(i int) {
 	f.inputs[i].Focus()
 }
 
+func (f *entryForm) nextStatus()     { f.status = f.status.Next() }
+func (f *entryForm) previousStatus() {
+	list := StatusList()
+	for i, s := range list {
+		if s == f.status {
+			f.status = list[(i-1+len(list))%len(list)]
+			return
+		}
+	}
+	f.status = list[0]
+}
+
 func (f *entryForm) build() (Anime, error) {
 	progress, err := parseInt(f.inputs[fProgress].Value())
 	if err != nil {
@@ -536,33 +622,7 @@ func (f *entryForm) build() (Anime, error) {
 	}, nil
 }
 
-// ── Status cycling in form ────────────────────────────────────────────────────
-
-// The form now handles left/right for status inline (no popup in form mode).
-// We wire those keys in updateForm via the existing left/right case:
-// (already done above — f.status.Next() / Prev())
-
-func (f *entryForm) nextStatus() {
-	f.status = f.status.Next()
-}
-
-func (f *entryForm) previousStatus() {
-	list := StatusList()
-	idx := -1
-	for i, s := range list {
-		if s == f.status {
-			idx = i
-			break
-		}
-	}
-	if idx == -1 {
-		f.status = list[0]
-		return
-	}
-	f.status = list[(idx-1+len(list))%len(list)]
-}
-
-// ── Formatting helpers ────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 func fmtProgress(v int) string {
 	if v == 0 {
@@ -586,9 +646,7 @@ func fmtRatingRaw(v float32) string {
 }
 
 func fmtDate(t interface{ IsZero() bool }) string {
-	type hasFormat interface {
-		Format(string) string
-	}
+	type hasFormat interface{ Format(string) string }
 	if t.IsZero() {
 		return "·"
 	}
