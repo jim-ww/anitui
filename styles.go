@@ -74,10 +74,6 @@ var (
 			Foreground(colGreen).
 			Width(12)
 
-	formValueStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colPeach)
-
 	// status badge colours
 	statusWatchingStyle    = lipgloss.NewStyle().Bold(true).Foreground(colBlue)
 	statusCompletedStyle   = lipgloss.NewStyle().Bold(true).Foreground(colGreen)
