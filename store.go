@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -170,6 +171,19 @@ func parseTomlDate(s string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+// parseDate is the user-facing version that returns an error for invalid input.
+func parseDate(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("date must be YYYY-MM-DD, got %q", s)
+	}
+	return t, nil
 }
 
 func formatTomlDate(t time.Time) string {

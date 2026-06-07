@@ -14,14 +14,12 @@ func cc(light, dark string) compat.AdaptiveColor {
 
 // Mocha / Latte pairs
 var (
-	colMauve  = cc("#8839ef", "#cba6f7")
 	colGreen  = cc("#40a02b", "#a6e3a1")
 	colBlue   = cc("#1e66f5", "#89b4fa")
 	colPeach  = cc("#fe640b", "#fab387")
 	colText   = cc("#4c4f69", "#cdd6f4")
 	colSubtle = cc("#6c6f85", "#9399b2")
 	colMantle = cc("#e6e9ef", "#181825")
-	colCrust  = cc("#dce0e8", "#11111b")
 	colRed    = cc("#d20f39", "#f38ba8")
 	colYellow = cc("#df8e1d", "#f9e2af")
 	colTeal   = cc("#179299", "#94e2d5")
@@ -39,6 +37,10 @@ var (
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(colSubtle)
+
+	searchStyle = lipgloss.NewStyle().
+			Foreground(colYellow).
+			Bold(true)
 
 	errorStyle = lipgloss.NewStyle().
 			Bold(true).
