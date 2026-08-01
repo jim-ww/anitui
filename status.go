@@ -1,16 +1,16 @@
-package model
+package main
 
 import "slices"
 
 type Status string
 
 const (
-	StatusWatching    Status = "watching"
-	StatusCompleted   Status = "completed"
-	StatusPlanToWatch Status = "plan to watch"
-	StatusPaused      Status = "paused"
-	StatusDropped     Status = "dropped"
-	StatusRewatching  Status = "rewatching"
+	StatusWatching    Status = "watching"      // w
+	StatusCompleted   Status = "completed"     // c
+	StatusPlanToWatch Status = "plan to watch" // p
+	StatusPaused      Status = "paused"        // pa
+	StatusDropped     Status = "dropped"       // d
+	StatusRewatching  Status = "rewatching"    // r
 )
 
 func StatusList() []Status {
@@ -59,21 +59,18 @@ func (s Status) Next() Status {
 	return list[(idx+1)%len(list)]
 }
 
-func ParseStatus(value string) (s Status, valid bool) {
-	switch value {
-	case string(StatusWatching):
-		return StatusWatching, true
-	case string(StatusCompleted):
-		return StatusCompleted, true
-	case string(StatusPlanToWatch):
-		return StatusPlanToWatch, true
-	case string(StatusPaused):
-		return StatusPaused, true
-	case string(StatusDropped):
-		return StatusDropped, true
-	case string(StatusRewatching):
-		return StatusRewatching, true
-	default:
-		return "", false
+func (s Status) Prev() Status {
+	list := StatusList()
+	idx := slices.Index(list, s)
+	if idx == -1 {
+		return list[0]
 	}
+	return list[(idx-1+len(list))%len(list)]
+}
+
+func ParseStatus(value string) (s Status, valid bool) {
+	if slices.Contains(StatusList(), Status(value)) {
+		return Status(value), true
+	}
+	return "", false
 }
