@@ -91,16 +91,24 @@ func TestSaveReloadRoundTrip(t *testing.T) {
 		t.Fatalf("OpenStore() error = %v", err)
 	}
 
-	started := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	day := func(s string) time.Time {
+		t, err := time.Parse(dateLayout, s)
+		if err != nil {
+			panic(err)
+		}
+		return t
+	}
 	rating := float32(9.5)
 	want := Anime{
-		Title:        "Cowboy Bebop",
-		Progress:     26,
-		Status:       StatusRewatching,
-		StartedAt:    &started,
-		Rating:       &rating,
-		TotalRewatch: 1,
-		Notes:        "great show",
+		Title:    "Cowboy Bebop",
+		Progress: 26,
+		Status:   StatusRewatching,
+		WatchSessions: [][]time.Time{
+			{day("2025-01-07"), day("2025-01-08")},
+			{day("2026-03-01"), day("2026-03-05")},
+		},
+		Rating: &rating,
+		Notes:  "great show",
 	}
 	if _, err := s.Add(want); err != nil {
 		t.Fatalf("Add() error = %v", err)
@@ -115,14 +123,76 @@ func TestSaveReloadRoundTrip(t *testing.T) {
 		t.Fatalf("FindByTitle() error = %v", err)
 	}
 
-	if got.Title != want.Title || got.Progress != want.Progress || got.Status != want.Status ||
-		got.TotalRewatch != want.TotalRewatch || got.Notes != want.Notes {
+	if got.Title != want.Title || got.Progress != want.Progress || got.Status != want.Status || got.Notes != want.Notes {
 		t.Errorf("reloaded entry = %+v, want %+v", got, want)
 	}
-	if got.StartedAt == nil || !got.StartedAt.Equal(*want.StartedAt) {
-		t.Errorf("reloaded StartedAt = %v, want %v", got.StartedAt, want.StartedAt)
+	if !slicesOfDatesEqual(got.WatchSessions, want.WatchSessions) {
+		t.Errorf("reloaded WatchSessions = %v, want %v", got.WatchSessions, want.WatchSessions)
 	}
 	if got.Rating == nil || *got.Rating != *want.Rating {
 		t.Errorf("reloaded Rating = %v, want %v", got.Rating, want.Rating)
 	}
+
+	if got.TotalRewatch() != 1 {
+		t.Errorf("TotalRewatch() = %d, want 1", got.TotalRewatch())
+	}
+	if got.StartedAt() == nil || !got.StartedAt().Equal(day("2025-01-07")) {
+		t.Errorf("StartedAt() = %v, want 2025-01-07", got.StartedAt())
+	}
+	if got.LastWatch() == nil || !got.LastWatch().Equal(day("2026-03-05")) {
+		t.Errorf("LastWatch() = %v, want 2026-03-05", got.LastWatch())
+	}
+}
+
+func slicesOfDatesEqual(a, b [][]time.Time) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if len(a[i]) != len(b[i]) {
+			return false
+		}
+		for j := range a[i] {
+			if !a[i][j].Equal(b[i][j]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func TestEntriesPreserveInsertionOrder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "anime.csv")
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("OpenStore() error = %v", err)
+	}
+
+	titles := []string{"Zeta", "Alpha", "Mid"}
+	for _, title := range titles {
+		if _, err := s.Add(Anime{Title: title}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	assertOrder := func(t *testing.T, s *Store) {
+		t.Helper()
+		got := s.Entries(nil)
+		if len(got) != len(titles) {
+			t.Fatalf("Entries() = %d entries, want %d", len(got), len(titles))
+		}
+		for i, title := range titles {
+			if got[i].Title != title {
+				t.Errorf("Entries()[%d] = %q, want %q", i, got[i].Title, title)
+			}
+		}
+	}
+
+	assertOrder(t, s)
+
+	reloaded, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("reopen OpenStore() error = %v", err)
+	}
+	assertOrder(t, reloaded)
 }

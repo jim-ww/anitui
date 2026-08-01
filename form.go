@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -59,31 +58,18 @@ func fieldValue(a Anime, field Field) string {
 		return a.Title
 	case FieldProgress:
 		return strconv.Itoa(a.Progress)
-	case FieldStartedAt:
-		return formatDateField(a.StartedAt)
-	case FieldLastWatch:
-		return formatDateField(a.LastWatch)
-	case FieldFinishedAt:
-		return formatDateField(a.FinishedAt)
+	case FieldWatchSessions:
+		return formatSessions(a.WatchSessions)
 	case FieldRating:
 		if a.Rating == nil {
 			return ""
 		}
 		return strconv.FormatFloat(float64(*a.Rating), 'f', -1, 32)
-	case FieldTotalRewatch:
-		return strconv.Itoa(a.TotalRewatch)
 	case FieldNotes:
 		return a.Notes
 	default:
 		return ""
 	}
-}
-
-func formatDateField(t *time.Time) string {
-	if t == nil {
-		return ""
-	}
-	return t.Format(DateDisplayFormat)
 }
 
 func (f formModel) init() tea.Cmd {
@@ -190,14 +176,8 @@ func (f formModel) build() (Anime, error) {
 	}
 	a.Progress = progress
 
-	if a.StartedAt, err = parseDateField(f.inputs[FieldStartedAt].Value()); err != nil {
-		return Anime{}, fmt.Errorf("started_at: %w", err)
-	}
-	if a.LastWatch, err = parseDateField(f.inputs[FieldLastWatch].Value()); err != nil {
-		return Anime{}, fmt.Errorf("last_watch: %w", err)
-	}
-	if a.FinishedAt, err = parseDateField(f.inputs[FieldFinishedAt].Value()); err != nil {
-		return Anime{}, fmt.Errorf("finished_at: %w", err)
+	if a.WatchSessions, err = parseSessions(f.inputs[FieldWatchSessions].Value()); err != nil {
+		return Anime{}, fmt.Errorf("watch_sessions: %w", err)
 	}
 
 	ratingStr := strings.TrimSpace(f.inputs[FieldRating].Value())
@@ -212,27 +192,9 @@ func (f formModel) build() (Anime, error) {
 		a.Rating = &rating
 	}
 
-	totalRewatch, err := strconv.Atoi(strings.TrimSpace(f.inputs[FieldTotalRewatch].Value()))
-	if err != nil {
-		return Anime{}, fmt.Errorf("total_rewatch: %w", err)
-	}
-	a.TotalRewatch = totalRewatch
-
 	a.Notes = f.inputs[FieldNotes].Value()
 
 	return a, nil
-}
-
-func parseDateField(s string) (*time.Time, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil, nil
-	}
-	t, err := time.Parse(DateDisplayFormat, s)
-	if err != nil {
-		return nil, err
-	}
-	return &t, nil
 }
 
 func (f formModel) View() string {

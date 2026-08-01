@@ -18,14 +18,22 @@ var (
 	ErrEmptyTitle         = errors.New("title cannot be empty")
 )
 
-var header = []string{
-	"title", "progress", "status", "last_watch", "started_at",
-	"finished_at", "rating", "total_rewatch", "notes",
-}
+var header = []string{"title", "progress", "status", "watch_sessions", "rating", "notes"}
 
 const dateLayout = "2006-01-02"
 
+// sessionSep separates watch-throughs; dateSep separates the dates within
+// one watch-through. Neither collides with the date format (digits and '-'
+// only) or the CSV field delimiter, so the watch_sessions cell never needs
+// quoting just because of this data.
+const (
+	sessionSep = "|"
+	dateSep    = ";"
+)
+
 // Store holds anime entries loaded from and saved to a CSV file at path.
+// Entries preserve file/insertion order (Add appends, Delete/Update never
+// reorder), so the file order is always "the order you added things in".
 type Store struct {
 	path         string
 	defaultEntry Anime
@@ -58,7 +66,8 @@ func OpenStore(path string, opts ...Option) (*Store, error) {
 	return s, nil
 }
 
-// Entries returns a copy of all entries, optionally filtered by status.
+// Entries returns a copy of all entries in file order, optionally filtered
+// by status.
 func (s *Store) Entries(status *Status) []Anime {
 	entries := slices.Clone(s.entries)
 	if status == nil {
@@ -69,9 +78,10 @@ func (s *Store) Entries(status *Status) []Anime {
 	})
 }
 
-// Add appends a new entry. Fields left unset in a follow the store's
-// configured defaults (see WithDefault* options) — callers only need to set
-// Title, or any fields they want to override.
+// Add appends a new entry at the end, preserving insertion order. Fields
+// left unset in a follow the store's configured defaults (see WithDefault*
+// options) — callers only need to set Title, or any fields they want to
+// override.
 func (s *Store) Add(a Anime) (Anime, error) {
 	if a.Title == "" {
 		return Anime{}, ErrEmptyTitle
@@ -97,6 +107,8 @@ func (s *Store) FindByTitle(title string) (Anime, error) {
 	return a, nil
 }
 
+// Update replaces the entry found by originalTitle in place, preserving its
+// position in file order.
 func (s *Store) Update(originalTitle string, updated Anime) (Anime, error) {
 	if updated.Title == "" {
 		return Anime{}, ErrEmptyTitle
@@ -173,53 +185,54 @@ func parseRecord(record []string) (Anime, error) {
 	if !valid {
 		return Anime{}, fmt.Errorf("status: invalid value %q", record[2])
 	}
-	lastWatch, err := parseDate(record[3])
+	sessions, err := parseSessions(record[3])
 	if err != nil {
-		return Anime{}, fmt.Errorf("last_watch: %w", err)
-	}
-	startedAt, err := parseDate(record[4])
-	if err != nil {
-		return Anime{}, fmt.Errorf("started_at: %w", err)
-	}
-	finishedAt, err := parseDate(record[5])
-	if err != nil {
-		return Anime{}, fmt.Errorf("finished_at: %w", err)
+		return Anime{}, fmt.Errorf("watch_sessions: %w", err)
 	}
 	var rating *float32
-	if record[6] != "" {
-		r, err := strconv.ParseFloat(record[6], 32)
+	if record[4] != "" {
+		r, err := strconv.ParseFloat(record[4], 32)
 		if err != nil {
 			return Anime{}, fmt.Errorf("rating: %w", err)
 		}
 		rating = ptr(float32(r))
 	}
-	totalRewatch, err := strconv.Atoi(record[7])
-	if err != nil {
-		return Anime{}, fmt.Errorf("total_rewatch: %w", err)
-	}
 
 	return Anime{
-		Title:        record[0],
-		Progress:     progress,
-		Status:       status,
-		LastWatch:    lastWatch,
-		StartedAt:    startedAt,
-		FinishedAt:   finishedAt,
-		Rating:       rating,
-		TotalRewatch: totalRewatch,
-		Notes:        record[8],
+		Title:         record[0],
+		Progress:      progress,
+		Status:        status,
+		WatchSessions: sessions,
+		Rating:        rating,
+		Notes:         record[5],
 	}, nil
 }
 
-func parseDate(s string) (*time.Time, error) {
+// parseSessions parses a watch_sessions cell like "2025-01-07;2025-01-08|2026-03-01"
+// into one date slice per watch-through.
+func parseSessions(s string) ([][]time.Time, error) {
+	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, nil
 	}
-	t, err := time.Parse(dateLayout, s)
-	if err != nil {
-		return nil, err
+	sessionParts := strings.Split(s, sessionSep)
+	sessions := make([][]time.Time, len(sessionParts))
+	for i, part := range sessionParts {
+		if part == "" {
+			continue
+		}
+		dateParts := strings.Split(part, dateSep)
+		dates := make([]time.Time, len(dateParts))
+		for j, ds := range dateParts {
+			t, err := time.Parse(dateLayout, strings.TrimSpace(ds))
+			if err != nil {
+				return nil, fmt.Errorf("date %q: %w", ds, err)
+			}
+			dates[j] = t
+		}
+		sessions[i] = dates
 	}
-	return &t, nil
+	return sessions, nil
 }
 
 func (s *Store) save() error {
@@ -251,20 +264,22 @@ func toRecord(a Anime) []string {
 		a.Title,
 		strconv.Itoa(a.Progress),
 		a.Status.String(),
-		formatDate(a.LastWatch),
-		formatDate(a.StartedAt),
-		formatDate(a.FinishedAt),
+		formatSessions(a.WatchSessions),
 		formatRating(a.Rating),
-		strconv.Itoa(a.TotalRewatch),
 		a.Notes,
 	}
 }
 
-func formatDate(t *time.Time) string {
-	if t == nil {
-		return ""
+func formatSessions(sessions [][]time.Time) string {
+	parts := make([]string, len(sessions))
+	for i, session := range sessions {
+		dateStrs := make([]string, len(session))
+		for j, t := range session {
+			dateStrs[j] = t.Format(dateLayout)
+		}
+		parts[i] = strings.Join(dateStrs, dateSep)
 	}
-	return t.Format(dateLayout)
+	return strings.Join(parts, sessionSep)
 }
 
 func formatRating(r *float32) string {
