@@ -10,15 +10,17 @@ const (
 	modeList mode = iota
 	modeForm
 	modeConfirmDelete
+	modeSelectStatus
 )
 
 // Model is the root Bubble Tea model wiring the list and form sub-views.
 type Model struct {
 	store *Store
 
-	mode mode
-	list listModel
-	form formModel
+	mode         mode
+	list         listModel
+	form         formModel
+	selectStatus selectStatusModel
 
 	confirmTitle string
 	status       string
@@ -57,6 +59,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateForm(msg)
 	case modeConfirmDelete:
 		return m.updateConfirmDelete(msg)
+	case modeSelectStatus:
+		return m.updateSelectStatus(msg)
 	}
 	return m, nil
 }
@@ -68,6 +72,8 @@ func (m Model) View() tea.View {
 		content = m.form.View()
 	case modeConfirmDelete:
 		content = m.list.View() + "\n" + warnStyle.Render("Delete \""+m.confirmTitle+"\"? [y/n]")
+	case modeSelectStatus:
+		content = m.selectStatus.View()
 	default:
 		content = m.list.View()
 	}

@@ -118,7 +118,7 @@ func (m listModel) View() string {
 		filterLabel = s.String()
 	}
 	header := titleStyle.Render("anitui") + dimStyle.Render("  filter: "+filterLabel)
-	help := helpStyle.Render("a add  enter/e edit  d delete  p play  space cycle status  f filter  / search  q quit")
+	help := helpStyle.Render("a add  enter/e edit  d delete  p play  space status  f filter  / search  q quit")
 	return header + "\n" + m.table.View() + "\n" + help
 }
 
@@ -164,14 +164,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "space":
 			if entry, ok := m.list.selected(); ok {
-				entry.Status = entry.Status.Next()
-				updated, err := m.store.Update(entry.Title, entry)
-				if err != nil {
-					m.err = fmt.Errorf("update status: %w", err)
-					return m, nil
-				}
-				m.refreshList()
-				m.status = updated.Title + " -> " + updated.Status.String()
+				m.mode = modeSelectStatus
+				m.selectStatus = newSelectStatusModel(entry)
 			}
 			return m, nil
 		case "f":
