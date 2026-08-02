@@ -17,6 +17,25 @@ const (
 	colRating   = "rating"
 )
 
+// narrowWidthThreshold is the terminal width below which the status column
+// falls back to a single symbol — spelling out "plan to watch" just doesn't
+// fit a narrow terminal, and the symbols are only meant to be a space-saving
+// stand-in, not the primary way statuses are shown.
+const narrowWidthThreshold = 90
+
+func columnsFor(wide bool) []table.Column {
+	statusCol := table.NewColumn(colStatus, "St", 4)
+	if wide {
+		statusCol = table.NewColumn(colStatus, "Status", 14)
+	}
+	return []table.Column{
+		statusCol,
+		table.NewFlexColumn(colTitle, "Title", 3).WithFiltered(true),
+		table.NewColumn(colProgress, "Ep", 6),
+		table.NewColumn(colRating, "Rating", 8),
+	}
+}
+
 // statusFilters cycles: no filter, then each status in turn.
 var statusFilters = append([]*Status{nil}, statusPointers()...)
 
@@ -33,6 +52,7 @@ type listModel struct {
 	table       table.Model
 	entries     []Anime
 	filterIndex int
+	width       int
 }
 
 func newListModel(s *Store) listModel {
@@ -67,12 +87,7 @@ func newListModel(s *Store) listModel {
 	// below so it lands on the true last row instead of the last page's first.
 	keyMap.PageLast = key.NewBinding()
 
-	t := table.New([]table.Column{
-		table.NewColumn(colStatus, "St", 4),
-		table.NewFlexColumn(colTitle, "Title", 3).WithFiltered(true),
-		table.NewColumn(colProgress, "Ep", 6),
-		table.NewColumn(colRating, "Rating", 8),
-	}).
+	t := table.New(columnsFor(false)).
 		WithBaseStyle(lipgloss.NewStyle().Padding(0, 1)).
 		HeaderStyle(tableHeaderStyle).
 		HighlightStyle(tableHighlightStyle).
@@ -88,17 +103,25 @@ func newListModel(s *Store) listModel {
 
 func (m listModel) reload(s *Store) listModel {
 	m.entries = s.Entries(statusFilters[m.filterIndex])
-	rows := make([]table.Row, len(m.entries))
-	for i, a := range m.entries {
+	m.table = m.table.WithRows(rowsFor(m.entries, m.width >= narrowWidthThreshold))
+	return m
+}
+
+func rowsFor(entries []Anime, wide bool) []table.Row {
+	rows := make([]table.Row, len(entries))
+	for i, a := range entries {
+		statusLabel := a.Status.Symbol()
+		if wide {
+			statusLabel = a.Status.String()
+		}
 		rows[i] = table.NewRow(table.RowData{
-			colStatus:   a.Status.Symbol(),
+			colStatus:   statusLabel,
 			colTitle:    a.Title,
 			colProgress: strconv.Itoa(a.Progress),
 			colRating:   ratingLabel(a.Rating),
 		})
 	}
-	m.table = m.table.WithRows(rows)
-	return m
+	return rows
 }
 
 // halfPage returns half the table's current page size, at least 1 row.
@@ -114,7 +137,19 @@ func ratingLabel(r *float32) string {
 }
 
 func (m listModel) resize(width, height int) listModel {
+	wasWide := m.width >= narrowWidthThreshold
+	m.width = width
+	nowWide := width >= narrowWidthThreshold
+
 	m.table = m.table.WithTargetWidth(width).WithPageSize(max(1, height-6))
+	if nowWide != wasWide {
+		m.table = m.table.WithColumns(columnsFor(nowWide))
+		// entries is nil on the very first resize (before any reload), which
+		// is fine: reload() will run right after and populate rows itself.
+		if m.entries != nil {
+			m.table = m.table.WithRows(rowsFor(m.entries, nowWide))
+		}
+	}
 	return m
 }
 
