@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -62,7 +63,36 @@ func statsView(entries []Anime) string {
 	}
 	fmt.Fprintln(sb, fieldLabelStyle.Render("avg rating: ")+fieldValueStyle.Render(avgRating))
 
+	if favorites := topFavorites(entries, 5); len(favorites) > 0 {
+		fmt.Fprintln(sb)
+		fmt.Fprintln(sb, fieldLabelStyle.Render("top favorites:"))
+		for i, a := range favorites {
+			fmt.Fprintln(sb, fieldValueStyle.Render(fmt.Sprintf("  %d. %s (%.1f, %dx rewatch)", i+1, a.Title, *a.Rating, a.TotalRewatch())))
+		}
+	}
+
 	fmt.Fprintln(sb)
 	fmt.Fprint(sb, helpStyle.Render("any key to close"))
 	return sb.String()
+}
+
+// topFavorites returns the n highest-rated entries, ranked by rating first
+// and total rewatches as a tiebreaker; unrated entries never qualify.
+func topFavorites(entries []Anime, n int) []Anime {
+	rated := make([]Anime, 0, len(entries))
+	for _, a := range entries {
+		if a.Rating != nil {
+			rated = append(rated, a)
+		}
+	}
+	slices.SortFunc(rated, func(a, b Anime) int {
+		if c := compareRatingDesc(a.Rating, b.Rating); c != 0 {
+			return c
+		}
+		return b.TotalRewatch() - a.TotalRewatch()
+	})
+	if len(rated) > n {
+		rated = rated[:n]
+	}
+	return rated
 }
