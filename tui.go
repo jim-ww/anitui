@@ -81,9 +81,9 @@ func (m Model) View() tea.View {
 	case modeConfirmDelete:
 		content = m.list.View() + "\n" + warnStyle.Render("Delete \""+m.confirmTitle+"\"? [y/n]")
 	case modeSelectStatus:
-		content = m.selectStatus.View()
+		content = overlay(m.list.View(), m.selectStatus.View(), m.width, m.height)
 	case modeFilterStatus:
-		content = m.filterStatus.View()
+		content = overlay(m.list.View(), m.filterStatus.View(), m.width, m.height)
 	case modeInfo:
 		content = infoView(m.info)
 	default:
