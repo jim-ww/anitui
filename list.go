@@ -222,7 +222,7 @@ func (m listModel) View() string {
 		filterLabel = s.String()
 	}
 	header := titleStyle.Render("anitui") + dimStyle.Render("  filter: "+filterLabel)
-	help := helpStyle.Render("j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  s sort  v dates  i info  / search  q quit")
+	help := helpStyle.Render("j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  s sort  v dates  i info  u undo  / search  q quit")
 	return header + "\n" + m.table.View() + "\n" + help
 }
 
@@ -293,6 +293,19 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			m.mode = modeSort
 			m.sort = newSortModel(m.list.sortIndex)
+			return m, nil
+		case "u":
+			undone, err := m.store.Undo()
+			if err != nil {
+				m.err = fmt.Errorf("undo: %w", err)
+				return m, nil
+			}
+			if undone {
+				m.status = "undone"
+				m.refreshList()
+			} else {
+				m.status = "nothing to undo"
+			}
 			return m, nil
 		case "G":
 			last := len(m.list.table.GetVisibleRows()) - 1

@@ -39,6 +39,10 @@ type Store struct {
 	path         string
 	defaultEntry Anime
 	entries      []Anime
+
+	// undo holds the entries snapshot from immediately before the last
+	// mutation, so a single Undo can revert it. nil means nothing to undo.
+	undo []Anime
 }
 
 // Option configures defaults applied to newly Add-ed entries.
@@ -90,6 +94,7 @@ func (s *Store) Add(a Anime) (Anime, error) {
 	if _, _, found := s.findByTitle(a.Title); found {
 		return Anime{}, ErrTitleAlreadyExists
 	}
+	s.snapshotForUndo()
 	s.entries = append(s.entries, a)
 	return a, s.save()
 }
@@ -118,6 +123,7 @@ func (s *Store) Update(originalTitle string, updated Anime) (Anime, error) {
 	if !found {
 		return Anime{}, ErrTitleNotFound
 	}
+	s.snapshotForUndo()
 	s.entries[i] = updated
 	return updated, s.save()
 }
@@ -127,8 +133,25 @@ func (s *Store) Delete(title string) error {
 	if !found {
 		return ErrTitleNotFound
 	}
+	s.snapshotForUndo()
 	s.entries = slices.Delete(s.entries, i, i+1)
 	return s.save()
+}
+
+func (s *Store) snapshotForUndo() {
+	s.undo = slices.Clone(s.entries)
+}
+
+// Undo reverts the last Add, Update, or Delete, restoring entries to how
+// they were immediately before it and saving. Only one level of undo is
+// kept; a second call with nothing left to undo is a no-op.
+func (s *Store) Undo() (bool, error) {
+	if s.undo == nil {
+		return false, nil
+	}
+	s.entries = s.undo
+	s.undo = nil
+	return true, s.save()
 }
 
 func (s *Store) findByTitle(title string) (a Anime, idx int, found bool) {
