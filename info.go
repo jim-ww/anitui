@@ -25,6 +25,7 @@ func infoView(a Anime) string {
 	fmt.Fprintln(sb, fieldLabelStyle.Render("rating:   ")+fieldValueStyle.Render(ratingLabel(a.Rating)))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("started:  ")+fieldValueStyle.Render(dateLabel(a.StartedAt())))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("last:     ")+fieldValueStyle.Render(dateLabel(a.LastWatch())))
+	fmt.Fprintln(sb, fieldLabelStyle.Render("finished: ")+fieldValueStyle.Render(dateLabel(a.FinishedAt())))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("rewatches:")+fieldValueStyle.Render(fmt.Sprintf("%d", a.TotalRewatch())))
 	fmt.Fprintln(sb)
 
