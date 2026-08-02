@@ -228,8 +228,8 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "f":
-			m.list.filterIndex = (m.list.filterIndex + 1) % len(statusFilters)
-			m.refreshList()
+			m.mode = modeFilterStatus
+			m.filterStatus = newFilterStatusModel(m.list.filterIndex)
 			return m, nil
 		case "G":
 			last := len(m.list.table.GetVisibleRows()) - 1
