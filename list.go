@@ -50,16 +50,22 @@ func newListModel(s *Store) listModel {
 	// The library defaults h/l to page up/down, which steals the standard
 	// vim left/right keys for something they don't do here (there's nothing
 	// to scroll horizontally) and makes single-row movement with j/k feel
-	// broken by comparison. Free h/l, and give page up/down their actual
-	// vim bindings (ctrl+u/ctrl+d for half pages, ctrl+b/ctrl+f for full).
+	// broken by comparison. Free h/l for full-page scroll (ctrl+b/ctrl+f);
+	// ctrl+u/ctrl+d are handled separately in updateList since the library
+	// has no notion of a half-page jump, and its "G"/pageLast lands on the
+	// first row of the last page rather than the true last row, so that's
+	// handled by hand too.
 	keyMap.PageDown = key.NewBinding(
-		key.WithKeys("right", "pgdown", "ctrl+d", "ctrl+f"),
-		key.WithHelp("ctrl+d/f", "page down"),
+		key.WithKeys("right", "pgdown", "ctrl+f"),
+		key.WithHelp("ctrl+f", "page down"),
 	)
 	keyMap.PageUp = key.NewBinding(
-		key.WithKeys("left", "pgup", "ctrl+u", "ctrl+b"),
-		key.WithHelp("ctrl+u/b", "page up"),
+		key.WithKeys("left", "pgup", "ctrl+b"),
+		key.WithHelp("ctrl+b", "page up"),
 	)
+	// Disable the library's own "G"/end binding entirely; handled by hand
+	// below so it lands on the true last row instead of the last page's first.
+	keyMap.PageLast = key.NewBinding()
 
 	t := table.New([]table.Column{
 		table.NewColumn(colStatus, "St", 4),
@@ -93,6 +99,11 @@ func (m listModel) reload(s *Store) listModel {
 	}
 	m.table = m.table.WithRows(rows)
 	return m
+}
+
+// halfPage returns half the table's current page size, at least 1 row.
+func halfPage(t table.Model) int {
+	return max(1, t.PageSize()/2)
 }
 
 func ratingLabel(r *float32) string {
@@ -131,7 +142,7 @@ func (m listModel) View() string {
 		filterLabel = s.String()
 	}
 	header := titleStyle.Render("anitui") + dimStyle.Render("  filter: "+filterLabel)
-	help := helpStyle.Render("j/k move  ctrl+u/d page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  / search  q quit")
+	help := helpStyle.Render("j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  / search  q quit")
 	return header + "\n" + m.table.View() + "\n" + help
 }
 
@@ -184,6 +195,16 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "f":
 			m.list.filterIndex = (m.list.filterIndex + 1) % len(statusFilters)
 			m.refreshList()
+			return m, nil
+		case "G":
+			last := len(m.list.table.GetVisibleRows()) - 1
+			m.list.table = m.list.table.WithHighlightedRow(last)
+			return m, nil
+		case "ctrl+d":
+			m.list.table = m.list.table.WithHighlightedRow(m.list.table.GetHighlightedRowIndex() + halfPage(m.list.table))
+			return m, nil
+		case "ctrl+u":
+			m.list.table = m.list.table.WithHighlightedRow(m.list.table.GetHighlightedRowIndex() - halfPage(m.list.table))
 			return m, nil
 		}
 	}
