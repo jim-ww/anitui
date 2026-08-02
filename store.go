@@ -177,9 +177,13 @@ func parseRecord(record []string) (Anime, error) {
 		return Anime{}, fmt.Errorf("want %d fields, have %d", len(header), len(record))
 	}
 
-	progress, err := strconv.Atoi(record[1])
-	if err != nil {
-		return Anime{}, fmt.Errorf("progress: %w", err)
+	var progress int
+	if record[1] != "" {
+		var err error
+		progress, err = strconv.Atoi(record[1])
+		if err != nil {
+			return Anime{}, fmt.Errorf("progress: %w", err)
+		}
 	}
 	status, valid := ParseStatus(record[2])
 	if !valid {
