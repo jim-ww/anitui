@@ -12,6 +12,7 @@ const (
 	modeConfirmDelete
 	modeSelectStatus
 	modeFilterStatus
+	modeInfo
 )
 
 // Model is the root Bubble Tea model wiring the list and form sub-views.
@@ -23,6 +24,7 @@ type Model struct {
 	form         formModel
 	selectStatus selectStatusModel
 	filterStatus filterStatusModel
+	info         Anime
 
 	confirmTitle string
 	status       string
@@ -65,6 +67,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateSelectStatus(msg)
 	case modeFilterStatus:
 		return m.updateFilterStatus(msg)
+	case modeInfo:
+		return m.updateInfo(msg)
 	}
 	return m, nil
 }
@@ -80,6 +84,8 @@ func (m Model) View() tea.View {
 		content = m.selectStatus.View()
 	case modeFilterStatus:
 		content = m.filterStatus.View()
+	case modeInfo:
+		content = infoView(m.info)
 	default:
 		content = m.list.View()
 	}

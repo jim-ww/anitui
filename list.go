@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -15,6 +16,9 @@ const (
 	colStatus   = "status"
 	colProgress = "progress"
 	colRating   = "rating"
+	colLast     = "last"
+	colStarted  = "started"
+	colRewatch  = "rewatch"
 )
 
 // narrowWidthThreshold is the terminal width below which the status column
@@ -23,14 +27,28 @@ const (
 // stand-in, not the primary way statuses are shown.
 const narrowWidthThreshold = 90
 
-func columnsFor(wide bool) []table.Column {
+// columnsFor builds the table's columns for the current display state: wide
+// picks a spelled-out or symbol status column, and dates picks between the
+// default progress/rating columns and the "v"-toggled watch-history columns.
+func columnsFor(wide, dates bool) []table.Column {
 	statusCol := table.NewColumn(colStatus, "St", 4)
 	if wide {
 		statusCol = table.NewColumn(colStatus, "Status", 14)
 	}
+	title := table.NewFlexColumn(colTitle, "Title", 3).WithFiltered(true)
+
+	if dates {
+		return []table.Column{
+			statusCol,
+			title,
+			table.NewColumn(colLast, "Last", 12),
+			table.NewColumn(colStarted, "Started", 12),
+			table.NewColumn(colRewatch, "RW", 4),
+		}
+	}
 	return []table.Column{
 		statusCol,
-		table.NewFlexColumn(colTitle, "Title", 3).WithFiltered(true),
+		title,
 		table.NewColumn(colProgress, "Ep", 6),
 		table.NewColumn(colRating, "Rating", 8),
 	}
@@ -53,6 +71,9 @@ type listModel struct {
 	entries     []Anime
 	filterIndex int
 	width       int
+	// dates toggles the Ep/Rating columns for Last/Started/RW (watch
+	// history), so that info is visible without opening Edit. See "v".
+	dates bool
 }
 
 func newListModel(s *Store) listModel {
@@ -87,7 +108,7 @@ func newListModel(s *Store) listModel {
 	// below so it lands on the true last row instead of the last page's first.
 	keyMap.PageLast = key.NewBinding()
 
-	t := table.New(columnsFor(false)).
+	t := table.New(columnsFor(false, false)).
 		WithBaseStyle(lipgloss.NewStyle().Padding(0, 1)).
 		HeaderStyle(tableHeaderStyle).
 		HighlightStyle(tableHighlightStyle).
@@ -103,23 +124,38 @@ func newListModel(s *Store) listModel {
 
 func (m listModel) reload(s *Store) listModel {
 	m.entries = s.Entries(statusFilters[m.filterIndex])
-	m.table = m.table.WithRows(rowsFor(m.entries, m.width >= narrowWidthThreshold))
+	return m.rebuild()
+}
+
+// rebuild recomputes columns and rows from the current width/dates display
+// state. Called after anything that could change what should be on screen:
+// a reload, a resize crossing the wide/narrow threshold, or toggling "v".
+func (m listModel) rebuild() listModel {
+	wide := m.width >= narrowWidthThreshold
+	m.table = m.table.WithColumns(columnsFor(wide, m.dates)).WithRows(rowsFor(m.entries, wide, m.dates))
 	return m
 }
 
-func rowsFor(entries []Anime, wide bool) []table.Row {
+func rowsFor(entries []Anime, wide, dates bool) []table.Row {
 	rows := make([]table.Row, len(entries))
 	for i, a := range entries {
 		statusLabel := a.Status.Symbol()
 		if wide {
 			statusLabel = a.Status.String()
 		}
-		rows[i] = table.NewRow(table.RowData{
-			colStatus:   statusLabel,
-			colTitle:    a.Title,
-			colProgress: strconv.Itoa(a.Progress),
-			colRating:   ratingLabel(a.Rating),
-		})
+		data := table.RowData{
+			colStatus: statusLabel,
+			colTitle:  a.Title,
+		}
+		if dates {
+			data[colLast] = dateLabel(a.LastWatch())
+			data[colStarted] = dateLabel(a.StartedAt())
+			data[colRewatch] = strconv.Itoa(a.TotalRewatch())
+		} else {
+			data[colProgress] = strconv.Itoa(a.Progress)
+			data[colRating] = ratingLabel(a.Rating)
+		}
+		rows[i] = table.NewRow(data)
 	}
 	return rows
 }
@@ -136,19 +172,20 @@ func ratingLabel(r *float32) string {
 	return fmt.Sprintf("%.1f", *r)
 }
 
-func (m listModel) resize(width, height int) listModel {
-	wasWide := m.width >= narrowWidthThreshold
-	m.width = width
-	nowWide := width >= narrowWidthThreshold
+func dateLabel(t *time.Time) string {
+	if t == nil {
+		return "–"
+	}
+	return t.Format(DateDisplayFormat)
+}
 
+func (m listModel) resize(width, height int) listModel {
+	m.width = width
 	m.table = m.table.WithTargetWidth(width).WithPageSize(max(1, height-6))
-	if nowWide != wasWide {
-		m.table = m.table.WithColumns(columnsFor(nowWide))
-		// entries is nil on the very first resize (before any reload), which
-		// is fine: reload() will run right after and populate rows itself.
-		if m.entries != nil {
-			m.table = m.table.WithRows(rowsFor(m.entries, nowWide))
-		}
+	// entries is nil on the very first resize (before any reload), which is
+	// fine: reload() runs right after and rebuilds anyway.
+	if m.entries != nil {
+		m = m.rebuild()
 	}
 	return m
 }
@@ -177,7 +214,7 @@ func (m listModel) View() string {
 		filterLabel = s.String()
 	}
 	header := titleStyle.Render("anitui") + dimStyle.Render("  filter: "+filterLabel)
-	help := helpStyle.Render("j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  / search  q quit")
+	help := helpStyle.Render("j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  v dates  i info  / search  q quit")
 	return header + "\n" + m.table.View() + "\n" + help
 }
 
@@ -230,6 +267,16 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "f":
 			m.mode = modeFilterStatus
 			m.filterStatus = newFilterStatusModel(m.list.filterIndex)
+			return m, nil
+		case "v":
+			m.list.dates = !m.list.dates
+			m.list = m.list.rebuild()
+			return m, nil
+		case "i":
+			if entry, ok := m.list.selected(); ok {
+				m.mode = modeInfo
+				m.info = entry
+			}
 			return m, nil
 		case "G":
 			last := len(m.list.table.GetVisibleRows()) - 1
