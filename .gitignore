@@ -2,3 +2,5 @@
 *.csv.bak
 *.csv.lock
 /anitui
+# Added by goreleaser init:
+dist/
