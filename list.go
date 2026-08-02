@@ -37,7 +37,7 @@ type listModel struct {
 func newListModel(s *Store) listModel {
 	t := table.New([]table.Column{
 		table.NewColumn(colStatus, "St", 4),
-		table.NewFlexColumn(colTitle, "Title", 3),
+		table.NewFlexColumn(colTitle, "Title", 3).WithFiltered(true),
 		table.NewColumn(colProgress, "Ep", 6),
 		table.NewColumn(colRating, "Rating", 8),
 	}).
@@ -46,7 +46,8 @@ func newListModel(s *Store) listModel {
 		HighlightStyle(tableHighlightStyle).
 		Focused(true).
 		WithPageSize(20).
-		WithFuzzyFilter()
+		WithFuzzyFilter().
+		Filtered(true)
 
 	m := listModel{table: t}
 	return m.reload(s)
@@ -79,12 +80,22 @@ func (m listModel) resize(width, height int) listModel {
 	return m
 }
 
+// selected returns the Anime behind the row currently highlighted on screen.
+// It must look the row up by title rather than by GetHighlightedRowIndex,
+// since that index is into the table's filtered/sorted view (GetVisibleRows),
+// not into m.entries' insertion order.
 func (m listModel) selected() (Anime, bool) {
-	i := m.table.GetHighlightedRowIndex()
-	if i < 0 || i >= len(m.entries) {
+	row := m.table.HighlightedRow()
+	title, ok := row.Data[colTitle].(string)
+	if !ok {
 		return Anime{}, false
 	}
-	return m.entries[i], true
+	for _, a := range m.entries {
+		if a.Title == title {
+			return a, true
+		}
+	}
+	return Anime{}, false
 }
 
 func (m listModel) View() string {
