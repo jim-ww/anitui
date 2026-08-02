@@ -47,6 +47,19 @@ func newListModel(s *Store) listModel {
 		key.WithKeys("esc"),
 		key.WithHelp("esc", "unfocus"),
 	)
+	// The library defaults h/l to page up/down, which steals the standard
+	// vim left/right keys for something they don't do here (there's nothing
+	// to scroll horizontally) and makes single-row movement with j/k feel
+	// broken by comparison. Free h/l, and give page up/down their actual
+	// vim bindings (ctrl+u/ctrl+d for half pages, ctrl+b/ctrl+f for full).
+	keyMap.PageDown = key.NewBinding(
+		key.WithKeys("right", "pgdown", "ctrl+d", "ctrl+f"),
+		key.WithHelp("ctrl+d/f", "page down"),
+	)
+	keyMap.PageUp = key.NewBinding(
+		key.WithKeys("left", "pgup", "ctrl+u", "ctrl+b"),
+		key.WithHelp("ctrl+u/b", "page up"),
+	)
 
 	t := table.New([]table.Column{
 		table.NewColumn(colStatus, "St", 4),
@@ -118,7 +131,7 @@ func (m listModel) View() string {
 		filterLabel = s.String()
 	}
 	header := titleStyle.Render("anitui") + dimStyle.Render("  filter: "+filterLabel)
-	help := helpStyle.Render("a add  enter/e edit  d delete  p play  space status  f filter  / search  q quit")
+	help := helpStyle.Render("j/k move  ctrl+u/d page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  / search  q quit")
 	return header + "\n" + m.table.View() + "\n" + help
 }
 
