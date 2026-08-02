@@ -70,6 +70,7 @@ type listModel struct {
 	table       table.Model
 	entries     []Anime
 	filterIndex int
+	sortIndex   int
 	width       int
 	// dates toggles the Ep/Rating columns for Last/Started/RW (watch
 	// history), so that info is visible without opening Edit. See "v".
@@ -123,7 +124,7 @@ func newListModel(s *Store) listModel {
 }
 
 func (m listModel) reload(s *Store) listModel {
-	m.entries = s.Entries(statusFilters[m.filterIndex])
+	m.entries = sortEntries(s.Entries(statusFilters[m.filterIndex]), sortOptions[m.sortIndex].key)
 	return m.rebuild()
 }
 
@@ -221,7 +222,7 @@ func (m listModel) View() string {
 		filterLabel = s.String()
 	}
 	header := titleStyle.Render("anitui") + dimStyle.Render("  filter: "+filterLabel)
-	help := helpStyle.Render("j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  v dates  i info  / search  q quit")
+	help := helpStyle.Render("j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  s sort  v dates  i info  / search  q quit")
 	return header + "\n" + m.table.View() + "\n" + help
 }
 
@@ -288,6 +289,10 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = modeInfo
 				m.info = entry
 			}
+			return m, nil
+		case "s":
+			m.mode = modeSort
+			m.sort = newSortModel(m.list.sortIndex)
 			return m, nil
 		case "G":
 			last := len(m.list.table.GetVisibleRows()) - 1
