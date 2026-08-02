@@ -152,7 +152,7 @@ func rowsFor(entries []Anime, wide, dates bool) []table.Row {
 			data[colStarted] = dateLabel(a.StartedAt())
 			data[colRewatch] = strconv.Itoa(a.TotalRewatch())
 		} else {
-			data[colProgress] = strconv.Itoa(a.Progress)
+			data[colProgress] = progressLabel(a.Progress)
 			data[colRating] = ratingLabel(a.Rating)
 		}
 		rows[i] = table.NewRow(data)
@@ -163,6 +163,13 @@ func rowsFor(entries []Anime, wide, dates bool) []table.Row {
 // halfPage returns half the table's current page size, at least 1 row.
 func halfPage(t table.Model) int {
 	return max(1, t.PageSize()/2)
+}
+
+func progressLabel(p *int) string {
+	if p == nil {
+		return "–"
+	}
+	return strconv.Itoa(*p)
 }
 
 func ratingLabel(r *float32) string {
@@ -244,12 +251,16 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "p":
 			if entry, ok := m.list.selected(); ok {
-				ep := entry.Progress + 1
+				current := 0
+				if entry.Progress != nil {
+					current = *entry.Progress
+				}
+				ep := current + 1
 				if err := playEpisode(entry.Title, ep); err != nil {
 					m.err = fmt.Errorf("play: %w", err)
 					return m, nil
 				}
-				entry.Progress = ep
+				entry.Progress = &ep
 				if _, err := m.store.Update(entry.Title, entry); err != nil {
 					m.err = fmt.Errorf("update progress: %w", err)
 					return m, nil

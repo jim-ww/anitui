@@ -48,7 +48,7 @@ func WithDefaultStatus(s Status) Option {
 }
 
 func WithDefaultProgress(p int) Option {
-	return func(st *Store) { st.defaultEntry.Progress = p }
+	return func(st *Store) { st.defaultEntry.Progress = &p }
 }
 
 // OpenStore loads entries from path, creating no file until the first save.
@@ -177,13 +177,13 @@ func parseRecord(record []string) (Anime, error) {
 		return Anime{}, fmt.Errorf("want %d fields, have %d", len(header), len(record))
 	}
 
-	var progress int
+	var progress *int
 	if record[1] != "" {
-		var err error
-		progress, err = strconv.Atoi(record[1])
+		p, err := strconv.Atoi(record[1])
 		if err != nil {
 			return Anime{}, fmt.Errorf("progress: %w", err)
 		}
+		progress = ptr(p)
 	}
 	status, valid := ParseStatus(record[2])
 	if !valid {
@@ -266,7 +266,7 @@ func (s *Store) save() error {
 func toRecord(a Anime) []string {
 	return []string{
 		a.Title,
-		strconv.Itoa(a.Progress),
+		formatProgress(a.Progress),
 		a.Status.String(),
 		formatSessions(a.WatchSessions),
 		formatRating(a.Rating),
@@ -284,6 +284,13 @@ func formatSessions(sessions [][]time.Time) string {
 		parts[i] = strings.Join(dateStrs, dateSep)
 	}
 	return strings.Join(parts, sessionSep)
+}
+
+func formatProgress(p *int) string {
+	if p == nil {
+		return ""
+	}
+	return strconv.Itoa(*p)
 }
 
 func formatRating(r *float32) string {

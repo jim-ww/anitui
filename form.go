@@ -57,7 +57,7 @@ func fieldValue(a Anime, field Field) string {
 	case FieldTitle:
 		return a.Title
 	case FieldProgress:
-		return strconv.Itoa(a.Progress)
+		return formatProgress(a.Progress)
 	case FieldWatchSessions:
 		return formatSessions(a.WatchSessions)
 	case FieldRating:
@@ -170,12 +170,18 @@ func (f formModel) build() (Anime, error) {
 	}
 	a.Title = title
 
-	progress, err := strconv.Atoi(strings.TrimSpace(f.inputs[FieldProgress].Value()))
-	if err != nil {
-		return Anime{}, fmt.Errorf("progress: %w", err)
+	progressStr := strings.TrimSpace(f.inputs[FieldProgress].Value())
+	if progressStr == "" {
+		a.Progress = nil
+	} else {
+		progress, err := strconv.Atoi(progressStr)
+		if err != nil {
+			return Anime{}, fmt.Errorf("progress: %w", err)
+		}
+		a.Progress = &progress
 	}
-	a.Progress = progress
 
+	var err error
 	if a.WatchSessions, err = parseSessions(f.inputs[FieldWatchSessions].Value()); err != nil {
 		return Anime{}, fmt.Errorf("watch_sessions: %w", err)
 	}

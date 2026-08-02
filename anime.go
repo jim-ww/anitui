@@ -9,7 +9,7 @@ import "time"
 // so they can never drift out of sync with the actual dates.
 type Anime struct {
 	Title         string
-	Progress      int
+	Progress      *int
 	Status        Status
 	WatchSessions [][]time.Time
 	Rating        *float32

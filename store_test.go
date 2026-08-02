@@ -41,12 +41,12 @@ func TestAddFindUpdateDelete(t *testing.T) {
 		t.Errorf("FindByTitle() = %q, want %q", found.Title, "Cowboy Bebop")
 	}
 
-	updated, err := s.Update("Cowboy Bebop", Anime{Title: "Cowboy Bebop", Progress: 26})
+	updated, err := s.Update("Cowboy Bebop", Anime{Title: "Cowboy Bebop", Progress: ptr(26)})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if updated.Progress != 26 {
-		t.Errorf("Update() progress = %d, want 26", updated.Progress)
+	if updated.Progress == nil || *updated.Progress != 26 {
+		t.Errorf("Update() progress = %v, want 26", updated.Progress)
 	}
 
 	if _, err := s.Update("no such title", Anime{Title: "x"}); !errors.Is(err, ErrTitleNotFound) {
@@ -101,7 +101,7 @@ func TestSaveReloadRoundTrip(t *testing.T) {
 	rating := float32(9.5)
 	want := Anime{
 		Title:    "Cowboy Bebop",
-		Progress: 26,
+		Progress: ptr(26),
 		Status:   StatusRewatching,
 		WatchSessions: [][]time.Time{
 			{day("2025-01-07"), day("2025-01-08")},
@@ -123,8 +123,11 @@ func TestSaveReloadRoundTrip(t *testing.T) {
 		t.Fatalf("FindByTitle() error = %v", err)
 	}
 
-	if got.Title != want.Title || got.Progress != want.Progress || got.Status != want.Status || got.Notes != want.Notes {
+	if got.Title != want.Title || got.Status != want.Status || got.Notes != want.Notes {
 		t.Errorf("reloaded entry = %+v, want %+v", got, want)
+	}
+	if got.Progress == nil || want.Progress == nil || *got.Progress != *want.Progress {
+		t.Errorf("reloaded Progress = %v, want %v", got.Progress, want.Progress)
 	}
 	if !slicesOfDatesEqual(got.WatchSessions, want.WatchSessions) {
 		t.Errorf("reloaded WatchSessions = %v, want %v", got.WatchSessions, want.WatchSessions)
