@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -239,28 +240,81 @@ func parseSessions(s string) ([][]time.Time, error) {
 	return sessions, nil
 }
 
+// save writes entries out without ever leaving the CSV file in a corrupted
+// or truncated state. It writes the full new content to a temp file in the
+// same directory, fsyncs it, backs up the existing file to path+".bak", and
+// only then atomically renames the temp file into place. A crash or disk
+// error at any point before the final rename leaves the original file (and
+// its .bak) untouched.
 func (s *Store) save() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	f, err := os.Create(s.path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(s.path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("create file: %w", err)
+		return fmt.Errorf("create temp file: %w", err)
 	}
-	defer f.Close()
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // no-op once the rename below succeeds
 
-	w := csv.NewWriter(f)
+	w := csv.NewWriter(tmp)
 	if err := w.Write(header); err != nil {
+		tmp.Close()
 		return fmt.Errorf("write header: %w", err)
 	}
 	for _, a := range s.entries {
 		if err := w.Write(toRecord(a)); err != nil {
+			tmp.Close()
 			return fmt.Errorf("write entry %q: %w", a.Title, err)
 		}
 	}
 	w.Flush()
-	return w.Error()
+	if err := w.Error(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("flush: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := backupFile(s.path); err != nil {
+		return fmt.Errorf("backup: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		return fmt.Errorf("replace file: %w", err)
+	}
+	return nil
+}
+
+// backupFile copies path to path+".bak", leaving path itself untouched. A
+// missing path (nothing saved yet) is not an error.
+func backupFile(path string) error {
+	src, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.Create(path + ".bak")
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return err
+	}
+	return dst.Sync()
 }
 
 func toRecord(a Anime) []string {
