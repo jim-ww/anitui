@@ -19,6 +19,11 @@ const (
 	colLast     = "last"
 	colStarted  = "started"
 	colRewatch  = "rewatch"
+	// colNotes is never displayed (zero width, empty header) — it only
+	// exists so the fuzzy filter searches notes text too, since bubble-table
+	// matches over every filterable column's data regardless of whether
+	// that column is actually rendered.
+	colNotes = "notes"
 )
 
 // narrowWidthThreshold is the terminal width below which the status column
@@ -36,6 +41,7 @@ func columnsFor(wide, dates bool) []table.Column {
 		statusCol = table.NewColumn(colStatus, "Status", 14)
 	}
 	title := table.NewFlexColumn(colTitle, "Title", 3).WithFiltered(true)
+	notes := table.NewColumn(colNotes, "", 0).WithFiltered(true)
 
 	if dates {
 		return []table.Column{
@@ -44,6 +50,7 @@ func columnsFor(wide, dates bool) []table.Column {
 			table.NewColumn(colLast, "Last", 12),
 			table.NewColumn(colStarted, "Started", 12),
 			table.NewColumn(colRewatch, "RW", 4),
+			notes,
 		}
 	}
 	return []table.Column{
@@ -51,6 +58,7 @@ func columnsFor(wide, dates bool) []table.Column {
 		title,
 		table.NewColumn(colProgress, "Ep", 6),
 		table.NewColumn(colRating, "Rating", 8),
+		notes,
 	}
 }
 
@@ -147,6 +155,7 @@ func rowsFor(entries []Anime, wide, dates bool) []table.Row {
 		data := table.RowData{
 			colStatus: table.NewStyledCell(statusLabel, lipgloss.NewStyle().Foreground(a.Status.Color())),
 			colTitle:  a.Title,
+			colNotes:  a.Notes,
 		}
 		if dates {
 			data[colLast] = dateLabel(a.LastWatch())
