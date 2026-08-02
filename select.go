@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -70,9 +72,9 @@ func (m selectStatusModel) View() string {
 	sb := new(strings.Builder)
 	fmt.Fprintln(sb, titleStyle.Render("Status: "+m.title))
 	for i, s := range m.options {
-		label := fieldLabelStyle
+		label := lipgloss.NewStyle().Foreground(s.Color())
 		if i == m.cursor {
-			label = fieldSelectedStyle
+			label = label.Bold(true).Underline(true)
 		}
 		fmt.Fprintln(sb, label.Render(fmt.Sprintf("  %s %s", s.Symbol(), s.String())))
 	}

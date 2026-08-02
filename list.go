@@ -144,7 +144,7 @@ func rowsFor(entries []Anime, wide, dates bool) []table.Row {
 			statusLabel = a.Status.String()
 		}
 		data := table.RowData{
-			colStatus: statusLabel,
+			colStatus: table.NewStyledCell(statusLabel, lipgloss.NewStyle().Foreground(a.Status.Color())),
 			colTitle:  a.Title,
 		}
 		if dates {

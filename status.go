@@ -1,6 +1,11 @@
 package main
 
-import "slices"
+import (
+	"image/color"
+	"slices"
+
+	"charm.land/lipgloss/v2"
+)
 
 type Status string
 
@@ -47,6 +52,27 @@ func (s Status) Symbol() string {
 		return "↺"
 	default:
 		return "?"
+	}
+}
+
+// Color returns the status's foreground color, used to color-code it
+// wherever it's shown (the list, and the select/filter popups).
+func (s Status) Color() color.Color {
+	switch s {
+	case StatusCompleted:
+		return lipgloss.Color("2") // green
+	case StatusWatching:
+		return lipgloss.Color("12") // blue
+	case StatusPlanToWatch:
+		return lipgloss.Color("8") // gray
+	case StatusPaused:
+		return lipgloss.Color("3") // yellow
+	case StatusDropped:
+		return lipgloss.Color("1") // red
+	case StatusRewatching:
+		return lipgloss.Color("5") // magenta
+	default:
+		return lipgloss.Color("7")
 	}
 }
 

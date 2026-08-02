@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -20,7 +22,7 @@ func infoView(a Anime) string {
 	sb := new(strings.Builder)
 	fmt.Fprintln(sb, titleStyle.Render(a.Title))
 	fmt.Fprintln(sb)
-	fmt.Fprintln(sb, fieldLabelStyle.Render("status:   ")+fieldValueStyle.Render(a.Status.Symbol()+" "+a.Status.String()))
+	fmt.Fprintln(sb, fieldLabelStyle.Render("status:   ")+lipgloss.NewStyle().Foreground(a.Status.Color()).Render(a.Status.Symbol()+" "+a.Status.String()))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("progress: ")+fieldValueStyle.Render(fmt.Sprintf("ep %d", a.Progress)))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("rating:   ")+fieldValueStyle.Render(ratingLabel(a.Rating)))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("started:  ")+fieldValueStyle.Render(dateLabel(a.StartedAt())))

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -49,13 +51,15 @@ func (m filterStatusModel) View() string {
 	sb := new(strings.Builder)
 	fmt.Fprintln(sb, titleStyle.Render("Filter by status"))
 	for i, s := range statusFilters {
-		label := fieldLabelStyle
-		if i == m.cursor {
-			label = fieldSelectedStyle
-		}
 		text := "all"
+		color := lipgloss.Color("7")
 		if s != nil {
 			text = s.Symbol() + " " + s.String()
+			color = s.Color()
+		}
+		label := lipgloss.NewStyle().Foreground(color)
+		if i == m.cursor {
+			label = label.Bold(true).Underline(true)
 		}
 		fmt.Fprintln(sb, label.Render("  "+text))
 	}
