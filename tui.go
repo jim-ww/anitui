@@ -15,6 +15,7 @@ const (
 	modeInfo
 	modeSort
 	modeStats
+	modePlayPrompt
 )
 
 // Model is the root Bubble Tea model wiring the list and form sub-views.
@@ -28,6 +29,7 @@ type Model struct {
 	filterStatus filterStatusModel
 	info         Anime
 	sort         sortModel
+	play         playPromptModel
 
 	confirmTitle string
 	status       string
@@ -76,6 +78,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateSort(msg)
 	case modeStats:
 		return m.updateStats(msg)
+	case modePlayPrompt:
+		return m.updatePlayPrompt(msg)
 	}
 	return m, nil
 }
@@ -97,6 +101,8 @@ func (m Model) View() tea.View {
 		content = overlay(m.list.View(), m.sort.View(), m.width, m.height)
 	case modeStats:
 		content = overlay(m.list.View(), statsView(m.store.Entries(nil)), m.width, m.height)
+	case modePlayPrompt:
+		content = overlay(m.list.View(), m.play.View(), m.width, m.height)
 	default:
 		content = m.list.View()
 	}

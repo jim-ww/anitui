@@ -261,22 +261,9 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "p":
 			if entry, ok := m.list.selected(); ok {
-				current := 0
-				if entry.Progress != nil {
-					current = *entry.Progress
-				}
-				ep := current + 1
-				if err := playEpisode(entry.Title, ep); err != nil {
-					m.err = fmt.Errorf("play: %w", err)
-					return m, nil
-				}
-				entry.Progress = &ep
-				if _, err := m.store.Update(entry.Title, entry); err != nil {
-					m.err = fmt.Errorf("update progress: %w", err)
-					return m, nil
-				}
-				m.refreshList()
-				m.status = fmt.Sprintf("playing episode %d of %s", ep, entry.Title)
+				m.mode = modePlayPrompt
+				m.play = newPlayPromptModel(entry)
+				return m, m.play.init()
 			}
 			return m, nil
 		case "space":
