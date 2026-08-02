@@ -7,6 +7,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// avgEpisodeMinutes is a rough average episode length, used only to turn
+// episode counts into an approximate watch-time estimate.
+const avgEpisodeMinutes = 20
+
 func (m Model) updateStats(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(tea.KeyPressMsg); ok {
 		m.mode = modeList
@@ -49,6 +53,8 @@ func statsView(entries []Anime) string {
 	}
 	fmt.Fprintln(sb)
 	fmt.Fprintln(sb, fieldLabelStyle.Render("episodes:   ")+fieldValueStyle.Render(fmt.Sprintf("%d", totalEpisodes)))
+	watchedHours := float64(totalEpisodes*avgEpisodeMinutes) / 60
+	fmt.Fprintln(sb, fieldLabelStyle.Render("time watched:")+fieldValueStyle.Render(fmt.Sprintf("~%.1fh", watchedHours)))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("rewatches:  ")+fieldValueStyle.Render(fmt.Sprintf("%d", totalRewatches)))
 	avgRating := "–"
 	if ratedCount > 0 {
