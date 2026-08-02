@@ -7,6 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.8
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/evertras/bubble-table v0.22.3
+	github.com/gofrs/flock v0.13.0
 )
 
 require (

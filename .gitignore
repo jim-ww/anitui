@@ -1,3 +1,4 @@
 *.csv
 *.csv.bak
+*.csv.lock
 /anitui
