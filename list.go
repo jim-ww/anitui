@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/evertras/bubble-table/table"
@@ -35,6 +36,18 @@ type listModel struct {
 }
 
 func newListModel(s *Store) listModel {
+	// Only esc should blur the filter input. The library's default also
+	// blurs on enter, which is disastrous here: the instant the filter box
+	// loses focus, our own global shortcuts (a/e/d/p/space/f) start
+	// consuming keystrokes again, so a stray letter typed right after
+	// "confirming" a search with enter (e.g. "a" while still typing) opens
+	// the add form instead of continuing the search.
+	keyMap := table.DefaultKeyMap()
+	keyMap.FilterBlur = key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "unfocus"),
+	)
+
 	t := table.New([]table.Column{
 		table.NewColumn(colStatus, "St", 4),
 		table.NewFlexColumn(colTitle, "Title", 3).WithFiltered(true),
@@ -47,7 +60,8 @@ func newListModel(s *Store) listModel {
 		Focused(true).
 		WithPageSize(20).
 		WithFuzzyFilter().
-		Filtered(true)
+		Filtered(true).
+		WithKeyMap(keyMap)
 
 	m := listModel{table: t}
 	return m.reload(s)
