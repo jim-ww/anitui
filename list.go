@@ -238,6 +238,16 @@ func (m listModel) View() string {
 func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.status, m.err = "", nil
 
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok && m.list.table.GetIsFilterInputFocused() && keyMsg.String() == "enter" {
+		// Confirm the filter without going through the library's own
+		// FilterBlur binding (see newListModel for why that's esc-only):
+		// this blurs directly, in the same update as the keystroke, so
+		// there's no gap where a stray subsequent key could be picked up
+		// as a global shortcut before the blur takes effect.
+		m.list.table = m.list.table.WithFilterInputValue(m.list.table.GetCurrentFilter())
+		return m, nil
+	}
+
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok && !m.list.table.GetIsFilterInputFocused() {
 		switch keyMsg.String() {
 		case "q":
