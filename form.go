@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -145,6 +146,11 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.form = f
 				return m, nil
 			}
+		case "ctrl+t":
+			ti := f.inputs[FieldWatchSessions]
+			ti.SetValue(appendToday(ti.Value(), f.entry.Status == StatusCompleted))
+			m.form = f
+			return m, nil
 		}
 	}
 
@@ -158,6 +164,21 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.form = f
 	return m, nil
+}
+
+// appendToday adds today's date to a watch_sessions field value. If completed
+// is true the entry has just finished a watch-through, so today starts a new
+// session (a rewatch); otherwise it's added to the current, still-in-progress
+// session.
+func appendToday(value string, completed bool) string {
+	today := time.Now().Format(DateDisplayFormat)
+	if value == "" {
+		return today
+	}
+	if completed {
+		return value + sessionSep + today
+	}
+	return value + dateSep + today
 }
 
 // build parses all field inputs into a Anime, validating as it goes.
@@ -229,6 +250,6 @@ func (f formModel) View() string {
 	if f.err != nil {
 		fmt.Fprintln(sb, warnStyle.Render(f.err.Error()))
 	}
-	fmt.Fprintln(sb, helpStyle.Render("↑/↓ move  ←/→ change status  ctrl+s save  esc cancel"))
+	fmt.Fprintln(sb, helpStyle.Render("↑/↓ move  ←/→ change status  ctrl+t add today  ctrl+s save  esc cancel"))
 	return sb.String()
 }
