@@ -115,7 +115,12 @@ func (m Model) View() tea.View {
 	if m.err != nil {
 		content += "\n" + warnStyle.Render(m.err.Error())
 	}
-	return tea.NewView(content)
+	// Alt screen keeps the app on its own screen buffer; without it the
+	// view shares the terminal's normal scrollback and the top of the
+	// table (the header row) can end up scrolled/cut off.
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
 }
 
 func (m *Model) refreshList() {
