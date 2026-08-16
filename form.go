@@ -169,16 +169,28 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 // appendToday adds today's date to a watch_sessions field value. If completed
 // is true the entry has just finished a watch-through, so today starts a new
 // session (a rewatch); otherwise it's added to the current, still-in-progress
-// session.
+// session. It's a no-op if today is already the most recent date recorded,
+// so mashing ctrl+t doesn't pile up duplicate dates.
 func appendToday(value string, completed bool) string {
 	today := time.Now().Format(DateDisplayFormat)
 	if value == "" {
 		return today
 	}
+	if lastSessionDate(value) == today {
+		return value
+	}
 	if completed {
 		return value + sessionSep + today
 	}
 	return value + dateSep + today
+}
+
+// lastSessionDate returns the most recently recorded date in a
+// watch_sessions field value, i.e. the last date of the last session.
+func lastSessionDate(value string) string {
+	sessions := strings.Split(value, sessionSep)
+	dates := strings.Split(sessions[len(sessions)-1], dateSep)
+	return dates[len(dates)-1]
 }
 
 // build parses all field inputs into a Anime, validating as it goes.
