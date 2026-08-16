@@ -251,8 +251,8 @@ func (f formModel) View() string {
 		fmt.Fprintln(sb, warnStyle.Render(f.err.Error()))
 	}
 	fmt.Fprintln(sb, dimStyle.Render(fmt.Sprintf(
-		"dates use %s format, e.g. %s; watch_sessions separates dates with %q and watch-throughs with %q",
-		DateDisplayFormat, time.Now().Format(DateDisplayFormat), dateSep, sessionSep,
+		"date format: %s",
+		time.Now().Format(DateDisplayFormat),
 	)))
 	fmt.Fprintln(sb, helpStyle.Render("↑/↓ move  ←/→ change status  ctrl+t add today  ctrl+s save  esc cancel"))
 	return sb.String()
