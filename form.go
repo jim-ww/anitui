@@ -251,7 +251,7 @@ func (f formModel) View() string {
 		fmt.Fprintln(sb, warnStyle.Render(f.err.Error()))
 	}
 	fmt.Fprintln(sb, dimStyle.Render(fmt.Sprintf(
-		"date format: %s",
+		"date format: YYYY-MM-DD, e.g. %s",
 		time.Now().Format(DateDisplayFormat),
 	)))
 	fmt.Fprintln(sb, helpStyle.Render("↑/↓ move  ←/→ change status  ctrl+t add today  ctrl+s save  esc cancel"))
