@@ -231,7 +231,14 @@ func (m listModel) View() string {
 		filterLabel = s.String()
 	}
 	header := titleStyle.Render("anitui") + dimStyle.Render("  filter: "+filterLabel)
-	help := helpStyle.Render("j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  s sort  v dates  i info  t stats  u undo  / search  q quit")
+	helpText := "j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  s sort  v dates  i info  t stats  u undo  / search  q quit"
+	if m.width > 0 && m.width < narrowWidthThreshold {
+		// The full help line wraps on narrow terminals and throws off the
+		// page-size math in resize (which assumes a fixed number of chrome
+		// rows), so fall back to the essentials only.
+		helpText = "a add  enter edit  d delete  p play  f filter  q quit"
+	}
+	help := helpStyle.Render(helpText)
 	return header + "\n" + m.table.View() + "\n" + help
 }
 

@@ -13,7 +13,16 @@ func overlay(bg, popup string, width, height int) string {
 	if width <= 0 || height <= 0 {
 		return popup
 	}
-	box := popupBoxStyle.Render(popup)
+	// Clamp the popup to the terminal size so it can't overflow on small
+	// screens; -2 accounts for the border on each side.
+	style := popupBoxStyle
+	if maxW := width - 2; maxW > 0 {
+		style = style.MaxWidth(maxW)
+	}
+	if maxH := height - 2; maxH > 0 {
+		style = style.MaxHeight(maxH)
+	}
+	box := style.Render(popup)
 	x := max(0, (width-lipgloss.Width(box))/2)
 	y := max(0, (height-lipgloss.Height(box))/2)
 
