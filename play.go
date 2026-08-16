@@ -41,6 +41,19 @@ type playFinishedMsg struct {
 	err   error
 }
 
+// stepEpisode adds delta to the episode input, clamped to at least 1, so
+// left/right can nudge the suggested episode without retyping it.
+func stepEpisode(ti textinput.Model, delta int) textinput.Model {
+	ep, err := strconv.Atoi(strings.TrimSpace(ti.Value()))
+	if err != nil {
+		return ti
+	}
+	ep = max(1, ep+delta)
+	ti.SetValue(strconv.Itoa(ep))
+	ti.CursorEnd()
+	return ti
+}
+
 // handlePlayFinished applies the progress update once ani-cli exits. It's
 // called from the top-level Update regardless of mode, since the prompt has
 // already returned to modeList by the time this message arrives.
@@ -67,10 +80,19 @@ func (m Model) handlePlayFinished(msg playFinishedMsg) Model {
 func (m Model) updatePlayPrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 	p := m.play
 
-	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		switch keyMsg.String() {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		switch msg.String() {
 		case "esc":
 			m.mode = modeList
+			return m, nil
+		case "left":
+			p.input = stepEpisode(p.input, -1)
+			m.play = p
+			return m, nil
+		case "right":
+			p.input = stepEpisode(p.input, 1)
+			m.play = p
 			return m, nil
 		case "enter":
 			ep, err := strconv.Atoi(strings.TrimSpace(p.input.Value()))
@@ -104,6 +126,6 @@ func (p playPromptModel) View() string {
 	fmt.Fprintln(sb)
 	fmt.Fprintln(sb, fieldLabelStyle.Render("episode: ")+p.input.View())
 	fmt.Fprintln(sb)
-	fmt.Fprint(sb, helpStyle.Render("enter play  esc cancel"))
+	fmt.Fprint(sb, helpStyle.Render("enter play  ←/→ episode  esc cancel"))
 	return sb.String()
 }
