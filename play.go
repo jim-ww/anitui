@@ -32,6 +32,38 @@ func (p playPromptModel) init() tea.Cmd {
 	return p.input.Focus()
 }
 
+// playFinishedMsg reports the result of an ani-cli run started from the
+// play prompt, along with the episode/title it was for so progress can be
+// recorded once ani-cli exits.
+type playFinishedMsg struct {
+	title string
+	ep    int
+	err   error
+}
+
+// handlePlayFinished applies the progress update once ani-cli exits. It's
+// called from the top-level Update regardless of mode, since the prompt has
+// already returned to modeList by the time this message arrives.
+func (m Model) handlePlayFinished(msg playFinishedMsg) Model {
+	if msg.err != nil {
+		m.err = fmt.Errorf("play: %w", msg.err)
+		return m
+	}
+	entry, err := m.store.FindByTitle(msg.title)
+	if err != nil {
+		m.err = fmt.Errorf("play: %w", err)
+		return m
+	}
+	entry.Progress = &msg.ep
+	if _, err := m.store.Update(entry.Title, entry); err != nil {
+		m.err = fmt.Errorf("update progress: %w", err)
+		return m
+	}
+	m.refreshList()
+	m.status = fmt.Sprintf("played episode %d of %s", msg.ep, entry.Title)
+	return m
+}
+
 func (m Model) updatePlayPrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 	p := m.play
 
@@ -52,19 +84,11 @@ func (m Model) updatePlayPrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = modeList
 				return m, nil
 			}
-			if err := playEpisode(entry.Title, ep); err != nil {
-				m.err = fmt.Errorf("play: %w", err)
-				return m, nil
-			}
-			entry.Progress = &ep
-			if _, err := m.store.Update(entry.Title, entry); err != nil {
-				m.err = fmt.Errorf("update progress: %w", err)
-				return m, nil
-			}
-			m.refreshList()
-			m.status = fmt.Sprintf("playing episode %d of %s", ep, entry.Title)
 			m.mode = modeList
-			return m, nil
+			m.status = fmt.Sprintf("playing episode %d of %s...", ep, entry.Title)
+			return m, tea.ExecProcess(playCommand(entry.Title, ep), func(err error) tea.Msg {
+				return playFinishedMsg{title: entry.Title, ep: ep, err: err}
+			})
 		}
 	}
 

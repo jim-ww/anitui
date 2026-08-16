@@ -59,9 +59,9 @@ func acquireLock(dataPath string) (unlock func(), err error) {
 	return func() { fl.Unlock() }, nil
 }
 
-// playEpisode launches ani-cli to play episode ep of title.
-func playEpisode(title string, ep int) error {
-	return exec.Command("ani-cli", "-e", strconv.Itoa(ep), title).Run()
+// playCommand builds the ani-cli command to play episode ep of title.
+func playCommand(title string, ep int) *exec.Cmd {
+	return exec.Command("ani-cli", "-e", strconv.Itoa(ep), title)
 }
 
 // defaultDataPath returns the default anime.csv location under the OS's
