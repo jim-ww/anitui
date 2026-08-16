@@ -245,6 +245,14 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// there's no gap where a stray subsequent key could be picked up
 		// as a global shortcut before the blur takes effect.
 		m.list.table = m.list.table.WithFilterInputValue(m.list.table.GetCurrentFilter())
+		// Also select the highlighted row right away, so filtering down to
+		// one match and hitting enter opens it in a single keystroke
+		// instead of needing a second enter to confirm the filter.
+		if entry, ok := m.list.selected(); ok {
+			m.mode = modeForm
+			m.form = newEditForm(entry)
+			return m, m.form.init()
+		}
 		return m, nil
 	}
 
