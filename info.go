@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -26,7 +27,11 @@ func infoView(a Anime) string {
 	if a.ActivelyReleasing() {
 		fmt.Fprintln(sb, fieldLabelStyle.Render("releasing:")+fieldValueStyle.Render("yes"))
 		if next := a.NextExpectedRelease(); next != nil {
-			fmt.Fprintln(sb, fieldLabelStyle.Render("next ep:  ")+fieldValueStyle.Render("~"+dateLabel(next))+dimStyle.Render(" (estimated from watch history, not a confirmed air date)"))
+			if next.After(time.Now()) {
+				fmt.Fprintln(sb, fieldLabelStyle.Render("next ep:  ")+fieldValueStyle.Render("~"+dateLabel(next))+dimStyle.Render(" (estimated from watch history, not a confirmed air date)"))
+			} else {
+				fmt.Fprintln(sb, fieldLabelStyle.Render("next ep:  ")+fieldValueStyle.Render("likely already out")+dimStyle.Render(" (estimated "+dateLabel(next)+")"))
+			}
 		} else {
 			fmt.Fprintln(sb, fieldLabelStyle.Render("next ep:  ")+dimStyle.Render("not enough watch history to estimate"))
 		}
