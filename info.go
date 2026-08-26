@@ -23,6 +23,9 @@ func infoView(a Anime) string {
 	fmt.Fprintln(sb, titleStyle.Render(a.Title))
 	fmt.Fprintln(sb)
 	fmt.Fprintln(sb, fieldLabelStyle.Render("status:   ")+lipgloss.NewStyle().Foreground(a.Status.Color()).Render(a.Status.Symbol()+" "+a.Status.String()))
+	if a.ActivelyReleasing() {
+		fmt.Fprintln(sb, fieldLabelStyle.Render("releasing:")+fieldValueStyle.Render("yes"))
+	}
 	fmt.Fprintln(sb, fieldLabelStyle.Render("progress: ")+fieldValueStyle.Render("ep "+progressLabel(a.Progress)))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("rating:   ")+fieldValueStyle.Render(ratingLabel(a.Rating)))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("started:  ")+fieldValueStyle.Render(dateLabel(a.StartedAt())))
@@ -47,10 +50,10 @@ func infoView(a Anime) string {
 		fmt.Fprintln(sb, fieldValueStyle.Render(label+" "+strings.Join(dates, ", ")))
 	}
 
-	if a.Notes != "" {
+	if notes := a.NotesText(); notes != "" {
 		fmt.Fprintln(sb)
 		fmt.Fprintln(sb, fieldLabelStyle.Render("notes:"))
-		fmt.Fprintln(sb, dimStyle.Render("  "+a.Notes))
+		fmt.Fprintln(sb, dimStyle.Render("  "+notes))
 	}
 
 	fmt.Fprintln(sb)

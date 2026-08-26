@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Anime is a single watch-list entry. WatchSessions holds one entry per
 // watch-through (a rewatch starts a new session), each a chronological list
@@ -55,6 +58,62 @@ func (a Anime) TotalRewatch() int {
 	return len(a.WatchSessions) - 1
 }
 
+// airingMarker flags an entry as "actively releasing" (still airing new
+// episodes) without adding a CSV column: it's a prefix on Notes, so the main
+// store format never changes and the file stays hand-editable.
+const airingMarker = "[airing]"
+
+// splitAiringMarker separates the airingMarker prefix (if present) from the
+// rest of notes.
+func splitAiringMarker(notes string) (releasing bool, rest string) {
+	s := strings.TrimSpace(notes)
+	if rest, ok := strings.CutPrefix(s, airingMarker); ok {
+		return true, strings.TrimSpace(rest)
+	}
+	return false, s
+}
+
+// ActivelyReleasing reports whether this entry is flagged as still airing.
+func (a Anime) ActivelyReleasing() bool {
+	releasing, _ := splitAiringMarker(a.Notes)
+	return releasing
+}
+
+// NotesText is Notes with the airingMarker prefix (if any) stripped, for
+// display or editing without exposing the marker as visible clutter.
+func (a Anime) NotesText() string {
+	_, rest := splitAiringMarker(a.Notes)
+	return rest
+}
+
+// withActivelyReleasing returns notes with the airingMarker prefix added or
+// removed to match releasing.
+func withActivelyReleasing(notes string, releasing bool) string {
+	_, rest := splitAiringMarker(notes)
+	if !releasing {
+		return rest
+	}
+	if rest == "" {
+		return airingMarker
+	}
+	return airingMarker + " " + rest
+}
+
+// RecentlyWatchedWhileAiring reports whether this entry is flagged as
+// actively releasing and was last watched less than a week ago, so a new
+// episode likely isn't out yet — useful for filtering it out of a
+// what-should-I-watch-next list.
+func (a Anime) RecentlyWatchedWhileAiring(now time.Time) bool {
+	if !a.ActivelyReleasing() {
+		return false
+	}
+	lastWatch := a.LastWatch()
+	if lastWatch == nil {
+		return false
+	}
+	return now.Sub(*lastWatch) < 7*24*time.Hour
+}
+
 // Field identifies one editable Anime attribute.
 type Field string
 
@@ -62,6 +121,7 @@ const (
 	FieldTitle         Field = "title"
 	FieldProgress      Field = "progress"
 	FieldStatus        Field = "status"
+	FieldReleasing     Field = "releasing"
 	FieldWatchSessions Field = "watch_sessions"
 	FieldRating        Field = "rating"
 	FieldNotes         Field = "notes"
@@ -74,6 +134,7 @@ func FieldList() []Field {
 		FieldTitle,
 		FieldProgress,
 		FieldStatus,
+		FieldReleasing,
 		FieldWatchSessions,
 		FieldRating,
 		FieldNotes,

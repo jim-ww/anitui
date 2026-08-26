@@ -43,7 +43,7 @@ func newForm(entry Anime, isNew bool) formModel {
 		inputs:    make(map[Field]*textinput.Model),
 	}
 	for _, field := range f.fields {
-		if field == FieldStatus {
+		if field == FieldStatus || field == FieldReleasing {
 			continue
 		}
 		ti := textinput.New()
@@ -67,7 +67,7 @@ func fieldValue(a Anime, field Field) string {
 		}
 		return strconv.FormatFloat(float64(*a.Rating), 'f', -1, 32)
 	case FieldNotes:
-		return a.Notes
+		return a.NotesText()
 	default:
 		return ""
 	}
@@ -137,12 +137,17 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.form = f
 			return m, cmd
 		case "left", "right":
-			if f.fields[f.cursor] == FieldStatus {
+			switch f.fields[f.cursor] {
+			case FieldStatus:
 				if keyMsg.String() == "left" {
 					f.entry.Status = f.entry.Status.Prev()
 				} else {
 					f.entry.Status = f.entry.Status.Next()
 				}
+				m.form = f
+				return m, nil
+			case FieldReleasing:
+				f.entry.Notes = withActivelyReleasing(f.entry.Notes, !f.entry.ActivelyReleasing())
 				m.form = f
 				return m, nil
 			}
@@ -155,7 +160,7 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	field := f.fields[f.cursor]
-	if field != FieldStatus {
+	if field != FieldStatus && field != FieldReleasing {
 		ti := f.inputs[field]
 		updated, cmd := ti.Update(msg)
 		*ti = updated
@@ -231,7 +236,7 @@ func (f formModel) build() (Anime, error) {
 		a.Rating = &rating
 	}
 
-	a.Notes = f.inputs[FieldNotes].Value()
+	a.Notes = withActivelyReleasing(f.inputs[FieldNotes].Value(), f.entry.ActivelyReleasing())
 
 	return a, nil
 }
@@ -251,9 +256,16 @@ func (f formModel) View() string {
 			label = fieldSelectedStyle
 		}
 		fmt.Fprint(sb, label.Render(fmt.Sprintf("  %-14s", field.String()+":")))
-		if field == FieldStatus {
+		switch field {
+		case FieldStatus:
 			fmt.Fprintln(sb, fieldValueStyle.Render(f.entry.Status.String()+" ("+f.entry.Status.Symbol()+")"))
-		} else {
+		case FieldReleasing:
+			value := "no"
+			if f.entry.ActivelyReleasing() {
+				value = "yes"
+			}
+			fmt.Fprintln(sb, fieldValueStyle.Render(value))
+		default:
 			fmt.Fprintln(sb, f.inputs[field].View())
 		}
 	}
@@ -266,6 +278,6 @@ func (f formModel) View() string {
 		"date format: YYYY-MM-DD, e.g. %s",
 		time.Now().Format(DateDisplayFormat),
 	)))
-	fmt.Fprintln(sb, helpStyle.Render("↑/↓ move  ←/→ change status  ctrl+t add today  ctrl+s save  esc cancel"))
+	fmt.Fprintln(sb, helpStyle.Render("↑/↓ move  ←/→ change status/releasing  ctrl+t add today  ctrl+s save  esc cancel"))
 	return sb.String()
 }

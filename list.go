@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -83,6 +84,10 @@ type listModel struct {
 	// dates toggles the Ep/Rating columns for Last/Started/RW (watch
 	// history), so that info is visible without opening Edit. See "v".
 	dates bool
+	// hideRecentAiring hides entries flagged actively releasing whose last
+	// watch was under a week ago — those probably don't have a new episode
+	// out yet, so they're just noise in a "what's next" pass. See "r".
+	hideRecentAiring bool
 }
 
 func newListModel(s *Store) listModel {
@@ -132,7 +137,14 @@ func newListModel(s *Store) listModel {
 }
 
 func (m listModel) reload(s *Store) listModel {
-	m.entries = sortEntries(s.Entries(statusFilters[m.filterIndex]), sortOptions[m.sortIndex].key)
+	entries := s.Entries(statusFilters[m.filterIndex])
+	if m.hideRecentAiring {
+		now := time.Now()
+		entries = slices.DeleteFunc(entries, func(a Anime) bool {
+			return a.RecentlyWatchedWhileAiring(now)
+		})
+	}
+	m.entries = sortEntries(entries, sortOptions[m.sortIndex].key)
 	return m.rebuild()
 }
 
@@ -231,7 +243,10 @@ func (m listModel) View() string {
 		filterLabel = s.String()
 	}
 	header := titleStyle.Render("anitui") + dimStyle.Render("  filter: "+filterLabel)
-	helpText := "j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  s sort  v dates  i info  t stats  u undo  / search  q quit"
+	if m.hideRecentAiring {
+		header += dimStyle.Render("  hiding recent airing")
+	}
+	helpText := "j/k move  ctrl+u/d halfpage  ctrl+b/f page  g/G top/bottom  a add  enter/e edit  d delete  p play  space status  f filter  s sort  v dates  r hide recent airing  i info  t stats  u undo  / search  q quit"
 	if m.width > 0 && m.width < narrowWidthThreshold {
 		// The full help line wraps on narrow terminals and throws off the
 		// page-size math in resize (which assumes a fixed number of chrome
@@ -296,6 +311,10 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "v":
 			m.list.dates = !m.list.dates
 			m.list = m.list.rebuild()
+			return m, nil
+		case "r":
+			m.list.hideRecentAiring = !m.list.hideRecentAiring
+			m.refreshList()
 			return m, nil
 		case "i":
 			if entry, ok := m.list.selected(); ok {
