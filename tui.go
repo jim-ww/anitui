@@ -10,6 +10,7 @@ const (
 	modeList mode = iota
 	modeForm
 	modeConfirmDelete
+	modeConfirmQuit
 	modeSelectStatus
 	modeFilterStatus
 	modeInfo
@@ -65,6 +66,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
+			if m.mode == modeForm && m.form.dirty() {
+				m.mode = modeConfirmQuit
+				return m, nil
+			}
 			return m, tea.Quit
 		}
 
@@ -79,6 +84,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateForm(msg)
 	case modeConfirmDelete:
 		return m.updateConfirmDelete(msg)
+	case modeConfirmQuit:
+		return m.updateConfirmQuit(msg)
 	case modeSelectStatus:
 		return m.updateSelectStatus(msg)
 	case modeFilterStatus:
@@ -102,6 +109,8 @@ func (m Model) View() tea.View {
 		content = m.form.View()
 	case modeConfirmDelete:
 		content = m.list.View() + "\n" + warnStyle.Render("Delete \""+m.confirmTitle+"\"? [y/n]")
+	case modeConfirmQuit:
+		content = m.form.View() + "\n" + warnStyle.Render("Discard unsaved changes and quit? [y/n]")
 	case modeSelectStatus:
 		content = overlay(m.list.View(), m.selectStatus.View(), m.width, m.height)
 	case modeFilterStatus:

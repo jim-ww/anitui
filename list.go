@@ -381,3 +381,20 @@ func (m Model) updateConfirmDelete(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
+// updateConfirmQuit handles the "discard unsaved form changes and quit?"
+// prompt raised when ctrl+c is pressed on a dirty form (see form.go dirty).
+func (m Model) updateConfirmQuit(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return m, nil
+	}
+	switch keyMsg.String() {
+	case "y":
+		return m, tea.Quit
+	case "n", "esc":
+		m.mode = modeForm
+		return m, nil
+	}
+	return m, nil
+}

@@ -16,6 +16,7 @@ import (
 // cycling with left/right instead, since it has a fixed set of values.
 type formModel struct {
 	entry     Anime
+	origEntry Anime
 	origTitle string
 	isNew     bool
 
@@ -37,6 +38,7 @@ func newEditForm(entry Anime) formModel {
 func newForm(entry Anime, isNew bool) formModel {
 	f := formModel{
 		entry:     entry,
+		origEntry: entry,
 		origTitle: entry.Title,
 		isNew:     isNew,
 		fields:    FieldList(),
@@ -196,6 +198,28 @@ func lastSessionDate(value string) string {
 	sessions := strings.Split(value, sessionSep)
 	dates := strings.Split(sessions[len(sessions)-1], dateSep)
 	return dates[len(dates)-1]
+}
+
+// dirty reports whether any field has been changed from what the form was
+// opened with, so an abrupt quit (ctrl+c) can warn before discarding it.
+func (f formModel) dirty() bool {
+	for _, field := range f.fields {
+		switch field {
+		case FieldStatus:
+			if f.entry.Status != f.origEntry.Status {
+				return true
+			}
+		case FieldReleasing:
+			if f.entry.ActivelyReleasing() != f.origEntry.ActivelyReleasing() {
+				return true
+			}
+		default:
+			if strings.TrimSpace(f.inputs[field].Value()) != strings.TrimSpace(fieldValue(f.origEntry, field)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // build parses all field inputs into a Anime, validating as it goes.
