@@ -150,6 +150,16 @@ func nextExpectedRelease(dates []time.Time) *time.Time {
 	return &next
 }
 
+// NextExpectedRelease is the projected release date of the next episode,
+// inferred from watch history (see releaseAnchor), or nil if the entry isn't
+// flagged actively releasing or no pattern could be inferred.
+func (a Anime) NextExpectedRelease() *time.Time {
+	if !a.ActivelyReleasing() {
+		return nil
+	}
+	return nextExpectedRelease(a.currentSession())
+}
+
 // RecentlyWatchedWhileAiring reports whether this entry is flagged as
 // actively releasing and a new episode isn't expected out yet — useful for
 // filtering it out of a what-should-I-watch-next list. It prefers a release

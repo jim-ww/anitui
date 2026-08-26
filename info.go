@@ -25,6 +25,11 @@ func infoView(a Anime) string {
 	fmt.Fprintln(sb, fieldLabelStyle.Render("status:   ")+lipgloss.NewStyle().Foreground(a.Status.Color()).Render(a.Status.Symbol()+" "+a.Status.String()))
 	if a.ActivelyReleasing() {
 		fmt.Fprintln(sb, fieldLabelStyle.Render("releasing:")+fieldValueStyle.Render("yes"))
+		if next := a.NextExpectedRelease(); next != nil {
+			fmt.Fprintln(sb, fieldLabelStyle.Render("next ep:  ")+fieldValueStyle.Render("~"+dateLabel(next))+dimStyle.Render(" (estimated from watch history, not a confirmed air date)"))
+		} else {
+			fmt.Fprintln(sb, fieldLabelStyle.Render("next ep:  ")+dimStyle.Render("not enough watch history to estimate"))
+		}
 	}
 	fmt.Fprintln(sb, fieldLabelStyle.Render("progress: ")+fieldValueStyle.Render("ep "+progressLabel(a.Progress)))
 	fmt.Fprintln(sb, fieldLabelStyle.Render("rating:   ")+fieldValueStyle.Render(ratingLabel(a.Rating)))
