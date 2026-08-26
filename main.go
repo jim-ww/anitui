@@ -15,7 +15,12 @@ import (
 
 const appName = "anitui"
 
-var dataFileFlag = flag.String("dataPath", defaultDataPath(), "path to the anime CSV data file")
+var (
+	dataFileFlag = flag.String("dataPath", defaultDataPath(), "path to the anime CSV data file")
+	statusFlag   = flag.String("status", "", "initial status filter (e.g. watching); empty means all")
+	datesFlag    = flag.Bool("dates", false, "start with the watch-history date columns shown (same as pressing v)")
+	hideAiring   = flag.Bool("hide-airing", false, "start with recently-watched actively-releasing entries hidden (same as pressing r)")
+)
 
 func main() {
 	flag.Parse()
@@ -33,10 +38,36 @@ func main() {
 		os.Exit(1)
 	}
 
-	if _, err := tea.NewProgram(newModel(s)).Run(); err != nil {
+	filterIndex, err := statusFilterIndex(*statusFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+
+	m := newModel(s, filterIndex, *datesFlag, *hideAiring)
+	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "run: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// statusFilterIndex resolves the -status flag value to an index into
+// statusFilters, so it lines up with what "f" cycles through in the TUI. An
+// empty value means "all" (index 0).
+func statusFilterIndex(value string) (int, error) {
+	if value == "" {
+		return 0, nil
+	}
+	status, valid := ParseStatus(value)
+	if !valid {
+		return 0, fmt.Errorf("invalid -status %q (want one of: %v)", value, StatusList())
+	}
+	for i, s := range statusFilters {
+		if s != nil && *s == status {
+			return i, nil
+		}
+	}
+	return 0, fmt.Errorf("invalid -status %q", value)
 }
 
 // acquireLock ensures only one anitui process runs against a given data

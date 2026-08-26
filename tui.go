@@ -38,9 +38,17 @@ type Model struct {
 	width, height int
 }
 
-func newModel(s *Store) Model {
+// newModel builds the root model, seeded with the given initial status
+// filter index (see statusFilterIndex), dates-column toggle, and
+// hide-recently-aired toggle — the same state "f"/"v"/"r" change at runtime,
+// settable up front via flags.
+func newModel(s *Store, filterIndex int, dates, hideRecentAiring bool) Model {
 	m := Model{store: s, mode: modeList}
 	m.list = newListModel(s)
+	m.list.filterIndex = filterIndex
+	m.list.dates = dates
+	m.list.hideRecentAiring = hideRecentAiring
+	m.list = m.list.reload(s)
 	return m
 }
 
