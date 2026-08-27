@@ -40,13 +40,14 @@ type Model struct {
 }
 
 // newModel builds the root model, seeded with the given initial status
-// filter index (see statusFilterIndex), dates-column toggle, and
-// hide-recently-aired toggle — the same state "f"/"v"/"r" change at runtime,
-// settable up front via flags.
-func newModel(s *Store, filterIndex int, dates, hideRecentAiring bool) Model {
+// filter index (see statusFilterIndex), sort index (see sortOptionIndex),
+// dates-column toggle, and hide-recently-aired toggle — the same state
+// "f"/"s"/"v"/"r" change at runtime, settable up front via flags.
+func newModel(s *Store, filterIndex, sortIndex int, dates, hideRecentAiring bool) Model {
 	m := Model{store: s, mode: modeList}
 	m.list = newListModel(s)
 	m.list.filterIndex = filterIndex
+	m.list.sortIndex = sortIndex
 	m.list.dates = dates
 	m.list.hideRecentAiring = hideRecentAiring
 	m.list = m.list.reload(s)

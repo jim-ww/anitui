@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/gofrs/flock"
@@ -20,6 +21,7 @@ var (
 	statusFlag   = flag.String("status", "", "initial status filter (e.g. watching); empty means all")
 	datesFlag    = flag.Bool("dates", false, "start with the watch-history date columns shown (same as pressing v)")
 	hideAiring   = flag.Bool("hide-airing", false, "start with recently-watched actively-releasing entries hidden (same as pressing r)")
+	sortFlag     = flag.String("sort", "", "initial sort order (added, last-watch, started, completed, rating, title); empty means added")
 )
 
 func main() {
@@ -44,7 +46,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	m := newModel(s, filterIndex, *datesFlag, *hideAiring)
+	sortIndex, err := sortOptionIndex(*sortFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+
+	m := newModel(s, filterIndex, sortIndex, *datesFlag, *hideAiring)
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "run: %v\n", err)
 		os.Exit(1)
@@ -68,6 +76,30 @@ func statusFilterIndex(value string) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("invalid -status %q", value)
+}
+
+// sortOptionIndex resolves the -sort flag value to an index into
+// sortOptions, matching by label case- and space/hyphen-insensitively (e.g.
+// "last-watch" or "Last watch" both match sortLastWatch). An empty value
+// means the default (added/insertion order, index 0).
+func sortOptionIndex(value string) (int, error) {
+	if value == "" {
+		return 0, nil
+	}
+	normalize := func(s string) string {
+		return strings.ReplaceAll(strings.ToLower(s), " ", "-")
+	}
+	target := normalize(value)
+	for i, opt := range sortOptions {
+		if normalize(opt.label) == target {
+			return i, nil
+		}
+	}
+	labels := make([]string, len(sortOptions))
+	for i, opt := range sortOptions {
+		labels[i] = normalize(opt.label)
+	}
+	return 0, fmt.Errorf("invalid -sort %q (want one of: %v)", value, labels)
 }
 
 // acquireLock ensures only one anitui process runs against a given data
