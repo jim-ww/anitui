@@ -22,6 +22,7 @@ var (
 	datesFlag    = flag.Bool("dates", false, "start with the watch-history date columns shown (same as pressing v)")
 	hideAiring   = flag.Bool("hide-airing", false, "start with recently-watched actively-releasing entries hidden (same as pressing r)")
 	sortFlag     = flag.String("sort", "", "initial sort order (added, last-watch, started, completed, rating, title); empty means added")
+	emitFlag     = flag.String("emit", "", "comma-separated, ordered list of columns to show (status,title,progress,rating,last,started,rewatch,notes); empty means the default columns")
 )
 
 func main() {
@@ -52,7 +53,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	m := newModel(s, filterIndex, sortIndex, *datesFlag, *hideAiring)
+	emitFields, err := parseEmitFields(*emitFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+
+	m := newModel(s, filterIndex, sortIndex, *datesFlag, *hideAiring, emitFields)
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "run: %v\n", err)
 		os.Exit(1)
@@ -100,6 +107,35 @@ func sortOptionIndex(value string) (int, error) {
 		labels[i] = normalize(opt.label)
 	}
 	return 0, fmt.Errorf("invalid -sort %q (want one of: %v)", value, labels)
+}
+
+// parseEmitFields parses the -emit flag's comma-separated column list into
+// ordered, validated emitFields. An empty value means "use the default
+// columns" (nil). "ep" is accepted as an alias for "progress" since that's
+// the column's on-screen header.
+func parseEmitFields(value string) ([]emitField, error) {
+	if value == "" {
+		return nil, nil
+	}
+	parts := strings.Split(value, ",")
+	fields := make([]emitField, 0, len(parts))
+	seen := make(map[emitField]bool, len(parts))
+	for _, p := range parts {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == "ep" {
+			p = string(emitProgress)
+		}
+		f := emitField(p)
+		if !validEmitField(f) {
+			return nil, fmt.Errorf("invalid -emit field %q (want any of: %v)", p, emitFieldList())
+		}
+		if seen[f] {
+			return nil, fmt.Errorf("duplicate -emit field %q", p)
+		}
+		seen[f] = true
+		fields = append(fields, f)
+	}
+	return fields, nil
 }
 
 // acquireLock ensures only one anitui process runs against a given data

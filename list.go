@@ -33,10 +33,40 @@ const (
 // stand-in, not the primary way statuses are shown.
 const narrowWidthThreshold = 90
 
-// columnsFor builds the table's columns for the current display state: wide
-// picks a spelled-out or symbol status column, and dates picks between the
-// default progress/rating columns and the "v"-toggled watch-history columns.
-func columnsFor(wide, dates bool) []table.Column {
+// emitField identifies one displayable column, as named on the -emit flag.
+type emitField string
+
+const (
+	emitStatus   emitField = "status"
+	emitTitle    emitField = "title"
+	emitProgress emitField = "progress"
+	emitRating   emitField = "rating"
+	emitLast     emitField = "last"
+	emitStarted  emitField = "started"
+	emitRewatch  emitField = "rewatch"
+	emitNotes    emitField = "notes"
+)
+
+// emitFieldList is every valid -emit field, in the order they're listed in
+// error/help messages.
+func emitFieldList() []emitField {
+	return []emitField{emitStatus, emitTitle, emitProgress, emitRating, emitLast, emitStarted, emitRewatch, emitNotes}
+}
+
+func validEmitField(f emitField) bool {
+	return slices.Contains(emitFieldList(), f)
+}
+
+// columnsFor builds the table's columns for the current display state. With
+// emit set (via -emit), it takes over entirely: exactly those columns are
+// shown, in that order, and wide/dates no longer apply. Otherwise wide picks
+// a spelled-out or symbol status column, and dates picks between the default
+// progress/rating columns and the "v"-toggled watch-history columns.
+func columnsFor(wide, dates bool, emit []emitField) []table.Column {
+	if emit != nil {
+		return emitColumns(emit, wide)
+	}
+
 	statusCol := table.NewColumn(colStatus, "St", 4)
 	if wide {
 		statusCol = table.NewColumn(colStatus, "Status", 14)
@@ -61,6 +91,60 @@ func columnsFor(wide, dates bool) []table.Column {
 		table.NewColumn(colRating, "Rating", 8),
 		notes,
 	}
+}
+
+// emitColumns builds exactly the requested columns, in the requested order.
+// title and notes are added back in, hidden (zero width), if the caller
+// didn't ask for them — selecting a row and fuzzy-filtering both depend on
+// those columns existing regardless of whether they're shown.
+func emitColumns(emit []emitField, wide bool) []table.Column {
+	cols := make([]table.Column, 0, len(emit)+2)
+	var haveTitle, haveNotes bool
+	for _, f := range emit {
+		switch f {
+		case emitTitle:
+			haveTitle = true
+		case emitNotes:
+			haveNotes = true
+		}
+		cols = append(cols, visibleColumnFor(f, wide))
+	}
+	if !haveTitle {
+		cols = append(cols, hiddenColumn(colTitle))
+	}
+	if !haveNotes {
+		cols = append(cols, hiddenColumn(colNotes))
+	}
+	return cols
+}
+
+func visibleColumnFor(f emitField, wide bool) table.Column {
+	switch f {
+	case emitStatus:
+		if wide {
+			return table.NewColumn(colStatus, "Status", 14)
+		}
+		return table.NewColumn(colStatus, "St", 4)
+	case emitTitle:
+		return table.NewFlexColumn(colTitle, "Title", 3).WithFiltered(true)
+	case emitProgress:
+		return table.NewColumn(colProgress, "Ep", 6)
+	case emitRating:
+		return table.NewColumn(colRating, "Rating", 8)
+	case emitLast:
+		return table.NewColumn(colLast, "Last", 12)
+	case emitStarted:
+		return table.NewColumn(colStarted, "Started", 12)
+	case emitRewatch:
+		return table.NewColumn(colRewatch, "RW", 4)
+	case emitNotes:
+		return table.NewColumn(colNotes, "Notes", 24).WithFiltered(true)
+	}
+	panic("unreachable: invalid emitField " + f) // validated by parseEmitFields
+}
+
+func hiddenColumn(name string) table.Column {
+	return table.NewColumn(name, "", 0).WithFiltered(true)
 }
 
 // statusFilters cycles: no filter, then each status in turn.
@@ -88,6 +172,9 @@ type listModel struct {
 	// watch was under a week ago — those probably don't have a new episode
 	// out yet, so they're just noise in a "what's next" pass. See "r".
 	hideRecentAiring bool
+	// emitFields, if non-nil, is a user-chosen exact set and order of columns
+	// (via -emit) that overrides the default/dates column layout entirely.
+	emitFields []emitField
 }
 
 func newListModel(s *Store) listModel {
@@ -122,7 +209,7 @@ func newListModel(s *Store) listModel {
 	// below so it lands on the true last row instead of the last page's first.
 	keyMap.PageLast = key.NewBinding()
 
-	t := table.New(columnsFor(false, false)).
+	t := table.New(columnsFor(false, false, nil)).
 		WithBaseStyle(lipgloss.NewStyle().Padding(0, 1)).
 		HeaderStyle(tableHeaderStyle).
 		HighlightStyle(tableHighlightStyle).
@@ -153,11 +240,14 @@ func (m listModel) reload(s *Store) listModel {
 // a reload, a resize crossing the wide/narrow threshold, or toggling "v".
 func (m listModel) rebuild() listModel {
 	wide := m.width >= narrowWidthThreshold
-	m.table = m.table.WithColumns(columnsFor(wide, m.dates)).WithRows(rowsFor(m.entries, wide, m.dates))
+	m.table = m.table.WithColumns(columnsFor(wide, m.dates, m.emitFields)).WithRows(rowsFor(m.entries, wide))
 	return m
 }
 
-func rowsFor(entries []Anime, wide, dates bool) []table.Row {
+// rowsFor fills in every column's data regardless of which are actually
+// shown — cheap to compute, and simpler than tracking which subset the
+// current column layout (default, dates, or a custom -emit list) needs.
+func rowsFor(entries []Anime, wide bool) []table.Row {
 	rows := make([]table.Row, len(entries))
 	for i, a := range entries {
 		statusLabel := a.Status.Symbol()
@@ -165,17 +255,14 @@ func rowsFor(entries []Anime, wide, dates bool) []table.Row {
 			statusLabel = a.Status.String()
 		}
 		data := table.RowData{
-			colStatus: table.NewStyledCell(statusLabel, lipgloss.NewStyle().Foreground(a.Status.Color())),
-			colTitle:  a.Title,
-			colNotes:  a.Notes,
-		}
-		if dates {
-			data[colLast] = dateLabel(a.LastWatch())
-			data[colStarted] = dateLabel(a.StartedAt())
-			data[colRewatch] = strconv.Itoa(a.TotalRewatch())
-		} else {
-			data[colProgress] = progressLabel(a.Progress)
-			data[colRating] = ratingLabel(a.Rating)
+			colStatus:   table.NewStyledCell(statusLabel, lipgloss.NewStyle().Foreground(a.Status.Color())),
+			colTitle:    a.Title,
+			colNotes:    a.Notes,
+			colProgress: progressLabel(a.Progress),
+			colRating:   ratingLabel(a.Rating),
+			colLast:     dateLabel(a.LastWatch()),
+			colStarted:  dateLabel(a.StartedAt()),
+			colRewatch:  strconv.Itoa(a.TotalRewatch()),
 		}
 		rows[i] = table.NewRow(data)
 	}
