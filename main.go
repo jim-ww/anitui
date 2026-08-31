@@ -23,6 +23,7 @@ var (
 	hideAiring   = flag.Bool("hide-airing", false, "start with recently-watched actively-releasing entries hidden (same as pressing r)")
 	sortFlag     = flag.String("sort", "", "initial sort order (added, last-watch, started, completed, rating, title); empty means added")
 	emitFlag     = flag.String("emit", "", "comma-separated, ordered list of columns to show (status,title,progress,rating,last,started,rewatch,notes); empty means the default columns")
+	externalTerm = flag.Bool("external-terminal", false, "open ani-cli in a separate terminal window instead of taking over this one (best effort; needs $TERMINAL or a known terminal emulator on PATH)")
 )
 
 func main() {
@@ -59,7 +60,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	m := newModel(s, filterIndex, sortIndex, *datesFlag, *hideAiring, emitFields)
+	m := newModel(s, filterIndex, sortIndex, *datesFlag, *hideAiring, emitFields, *externalTerm)
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "run: %v\n", err)
 		os.Exit(1)
@@ -161,6 +162,43 @@ func acquireLock(dataPath string) (unlock func(), err error) {
 // playCommand builds the ani-cli command to play episode ep of title.
 func playCommand(title string, ep int) *exec.Cmd {
 	return exec.Command("ani-cli", "-e", strconv.Itoa(ep), title)
+}
+
+// terminalEmulators lists terminal emulators tried, in order, when
+// -external-terminal is set and $TERMINAL isn't. All of them support "-e
+// <command> [args...]" to run and wait on a command.
+var terminalEmulators = []string{
+	"x-terminal-emulator", "kitty", "alacritty", "foot", "wezterm",
+	"gnome-terminal", "konsole", "xterm",
+}
+
+// findTerminalEmulator locates a terminal emulator to run ani-cli in,
+// preferring $TERMINAL, so -external-terminal has something to launch.
+func findTerminalEmulator() (string, error) {
+	if t := os.Getenv("TERMINAL"); t != "" {
+		if _, err := exec.LookPath(t); err == nil {
+			return t, nil
+		}
+	}
+	for _, t := range terminalEmulators {
+		if _, err := exec.LookPath(t); err == nil {
+			return t, nil
+		}
+	}
+	return "", fmt.Errorf("no terminal emulator found (set $TERMINAL)")
+}
+
+// externalPlayCommand builds the command that opens ani-cli in a separate
+// terminal window, for -external-terminal. Its wait status still reflects
+// ani-cli's exit code, since gnome-terminal and friends all block their
+// invoking process on "-e" until the launched command exits.
+func externalPlayCommand(title string, ep int) (*exec.Cmd, error) {
+	term, err := findTerminalEmulator()
+	if err != nil {
+		return nil, err
+	}
+	args := append([]string{"-e"}, playCommand(title, ep).Args...)
+	return exec.Command(term, args...), nil
 }
 
 // defaultDataPath returns the default anime.csv location under the OS's

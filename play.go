@@ -77,6 +77,20 @@ func (m Model) handlePlayFinished(msg playFinishedMsg) Model {
 	return m
 }
 
+// playExternally runs ani-cli in a separate terminal window, leaving the TUI
+// live in this one, and reports its exit status via playFinishedMsg once the
+// window closes.
+func playExternally(title string, ep int) tea.Cmd {
+	return func() tea.Msg {
+		cmd, err := externalPlayCommand(title, ep)
+		if err != nil {
+			return playFinishedMsg{title: title, ep: ep, err: err}
+		}
+		err = cmd.Run()
+		return playFinishedMsg{title: title, ep: ep, err: err}
+	}
+}
+
 func (m Model) updatePlayPrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 	p := m.play
 
@@ -107,6 +121,10 @@ func (m Model) updatePlayPrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.mode = modeList
+			if m.externalTerminal {
+				m.status = fmt.Sprintf("playing episode %d of %s in external terminal...", ep, entry.Title)
+				return m, playExternally(entry.Title, ep)
+			}
 			m.status = fmt.Sprintf("playing episode %d of %s...", ep, entry.Title)
 			return m, tea.ExecProcess(playCommand(entry.Title, ep), func(err error) tea.Msg {
 				return playFinishedMsg{title: entry.Title, ep: ep, err: err}

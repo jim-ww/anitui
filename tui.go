@@ -36,17 +36,19 @@ type Model struct {
 	status       string
 	err          error
 
+	externalTerminal bool
+
 	width, height int
 }
 
 // newModel builds the root model, seeded with the given initial status
 // filter index (see statusFilterIndex), sort index (see sortOptionIndex),
-// dates-column toggle, hide-recently-aired toggle, and custom column list
-// (see parseEmitFields) — the same state "f"/"s"/"v"/"r" change at runtime
-// (emitFields aside, which has no runtime toggle), settable up front via
-// flags.
-func newModel(s *Store, filterIndex, sortIndex int, dates, hideRecentAiring bool, emitFields []emitField) Model {
-	m := Model{store: s, mode: modeList}
+// dates-column toggle, hide-recently-aired toggle, custom column list
+// (see parseEmitFields), and external-terminal toggle — the same state
+// "f"/"s"/"v"/"r" change at runtime (emitFields and externalTerminal aside,
+// which have no runtime toggle), settable up front via flags.
+func newModel(s *Store, filterIndex, sortIndex int, dates, hideRecentAiring bool, emitFields []emitField, externalTerminal bool) Model {
+	m := Model{store: s, mode: modeList, externalTerminal: externalTerminal}
 	m.list = newListModel(s)
 	m.list.filterIndex = filterIndex
 	m.list.sortIndex = sortIndex
