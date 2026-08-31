@@ -113,46 +113,46 @@ func (a Anime) currentSession() []time.Time {
 	return nil
 }
 
-// releaseAnchor infers the weekly release phase from watch history: since an
-// episode can only be watched once released, the smallest gap of at least a
-// week between two consecutive watches marks a watch that happened right on
-// (or shortly after) a release — every week before or after it, by
-// construction, lines up with a release too. ok is false if the session
-// doesn't contain such a gap (e.g. every episode watched within days of the
-// previous one, as when binge-catching-up), so no pattern can be inferred.
-func releaseAnchor(dates []time.Time) (anchor time.Time, ok bool) {
-	bestGap := time.Duration(-1)
-	for i := 1; i < len(dates); i++ {
+// minReleaseGap is the shortest gap between watches that's plausibly a real
+// release cycle rather than same-sitting binge catch-up.
+const minReleaseGap = 3 * 24 * time.Hour
+
+// recentReleasePeriod infers the show's current release cadence from watch
+// history: the most recent gap between consecutive watches that's long
+// enough to plausibly span a real release. Using the most recent such gap,
+// rather than the smallest one seen across the whole session, keeps the
+// estimate responsive to schedule drift (day-of-week shifts, delays,
+// hiatuses) instead of anchoring on stale data from weeks back. ok is false
+// if the session doesn't contain such a gap (e.g. every episode watched
+// within days of the previous one, as when binge-catching-up), so no
+// pattern can be inferred.
+func recentReleasePeriod(dates []time.Time) (period time.Duration, ok bool) {
+	for i := len(dates) - 1; i > 0; i-- {
 		gap := dates[i].Sub(dates[i-1])
-		if gap >= weeklyPeriod && (bestGap == -1 || gap < bestGap) {
-			bestGap, anchor, ok = gap, dates[i], true
+		if gap >= minReleaseGap {
+			return gap, true
 		}
 	}
-	return anchor, ok
+	return 0, false
 }
 
-// nextExpectedRelease projects releaseAnchor's weekly pattern forward to the
-// next release after the most recent watch, or nil if no pattern could be
-// inferred from dates.
+// nextExpectedRelease projects recentReleasePeriod's cadence one period past
+// the most recent watch, or nil if no pattern could be inferred from dates.
 func nextExpectedRelease(dates []time.Time) *time.Time {
 	if len(dates) == 0 {
 		return nil
 	}
-	anchor, ok := releaseAnchor(dates)
+	period, ok := recentReleasePeriod(dates)
 	if !ok {
 		return nil
 	}
-	lastWatch := dates[len(dates)-1]
-	next := anchor
-	for !next.After(lastWatch) {
-		next = next.Add(weeklyPeriod)
-	}
+	next := dates[len(dates)-1].Add(period)
 	return &next
 }
 
 // NextExpectedRelease is the projected release date of the next episode,
-// inferred from watch history (see releaseAnchor), or nil if the entry isn't
-// flagged actively releasing or no pattern could be inferred.
+// inferred from watch history (see recentReleasePeriod), or nil if the
+// entry isn't flagged actively releasing or no pattern could be inferred.
 func (a Anime) NextExpectedRelease() *time.Time {
 	if !a.ActivelyReleasing() {
 		return nil
@@ -163,8 +163,8 @@ func (a Anime) NextExpectedRelease() *time.Time {
 // RecentlyWatchedWhileAiring reports whether this entry is flagged as
 // actively releasing and a new episode isn't expected out yet — useful for
 // filtering it out of a what-should-I-watch-next list. It prefers a release
-// pattern inferred from watch history (see releaseAnchor); lacking one, it
-// falls back to a flat one-week wait since the last watch.
+// pattern inferred from watch history (see recentReleasePeriod); lacking
+// one, it falls back to a flat one-week wait since the last watch.
 func (a Anime) RecentlyWatchedWhileAiring(now time.Time) bool {
 	if !a.ActivelyReleasing() {
 		return false
